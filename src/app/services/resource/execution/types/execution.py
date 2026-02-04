@@ -1,1 +1,0 @@
-# src/app/services/resource/execution/types/execution.py
