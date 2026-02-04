@@ -66,15 +66,82 @@ class TestGenericResourceLifecycle:
         expected_type = type_map.get(resource_type)
         assert isinstance(resource.workspace_instance, expected_type), f"Instance should be of type {expected_type}"
 
-    async def test_list_resources_in_project(self, client: AsyncClient, auth_headers_factory: Callable, registered_user_with_pro: UserContext, created_project_in_personal_ws: Project, created_resource: Resource):
-        """[参数化] 验证可以成功列出项目中创建的资源。"""
+    async def test_list_resources_in_workspace(self, client: AsyncClient, auth_headers_factory: Callable, registered_user_with_pro: UserContext, created_resource: Resource):
+        """[参数化] 验证可以成功列出工作空间中的资源。"""
         headers = await auth_headers_factory(registered_user_with_pro)
-        response = await client.get(f"/api/v1/projects/{created_project_in_personal_ws.uuid}/resources", headers=headers)
+        workspace_uuid = registered_user_with_pro.personal_workspace.uuid
+        response = await client.get(f"/api/v1/workspaces/{workspace_uuid}/resources", headers=headers)
         
         assert response.status_code == status.HTTP_200_OK
         data = response.json()["data"]
         assert len(data) >= 1
         assert created_resource.uuid in {r["uuid"] for r in data}
+
+    async def test_manage_project_resource_references(
+        self,
+        client: AsyncClient,
+        auth_headers_factory: Callable,
+        registered_user_with_pro: UserContext,
+        created_project_in_personal_ws: Project,
+        created_resource: Resource
+    ):
+        """验证项目可以添加、列出并删除资源引用。"""
+        headers = await auth_headers_factory(registered_user_with_pro)
+        project_uuid = created_project_in_personal_ws.uuid
+
+        payload = {"resource_uuid": created_resource.uuid, "alias": "primary_resource"}
+        response = await client.post(f"/api/v1/projects/{project_uuid}/resources", json=payload, headers=headers)
+        assert response.status_code == status.HTTP_201_CREATED, response.text
+        created_ref = response.json()["data"]
+        assert created_ref["resource_uuid"] == created_resource.uuid
+        assert created_ref["alias"] == "primary_resource"
+
+        list_response = await client.get(f"/api/v1/projects/{project_uuid}/resources", headers=headers)
+        assert list_response.status_code == status.HTTP_200_OK, list_response.text
+        refs = list_response.json()["data"]
+        assert created_resource.uuid in {ref["resource_uuid"] for ref in refs}
+
+        delete_response = await client.delete(
+            f"/api/v1/projects/{project_uuid}/resources/{created_resource.uuid}", headers=headers
+        )
+        assert delete_response.status_code == status.HTTP_200_OK, delete_response.text
+
+    async def test_cannot_reference_cross_workspace_resource(
+        self,
+        client: AsyncClient,
+        auth_headers_factory: Callable,
+        registered_user_with_team: UserContext,
+        team_workspace,
+    ):
+        """验证项目不能引用不同工作空间的资源。"""
+        headers = await auth_headers_factory(registered_user_with_team)
+
+        personal_ws_uuid = registered_user_with_team.personal_workspace.uuid
+        project_payload = {"name": "Personal Project"}
+        project_response = await client.post(
+            f"/api/v1/workspaces/{personal_ws_uuid}/projects",
+            json=project_payload,
+            headers=headers
+        )
+        assert project_response.status_code == status.HTTP_201_CREATED, project_response.text
+        project_uuid = project_response.json()["data"]["uuid"]
+
+        resource_payload = {"name": "Team Tool", "resource_type": "tool"}
+        resource_response = await client.post(
+            f"/api/v1/workspaces/{team_workspace.uuid}/resources",
+            json=resource_payload,
+            headers=headers
+        )
+        assert resource_response.status_code == status.HTTP_201_CREATED, resource_response.text
+        resource_uuid = resource_response.json()["data"]["uuid"]
+
+        ref_payload = {"resource_uuid": resource_uuid}
+        ref_response = await client.post(
+            f"/api/v1/projects/{project_uuid}/resources",
+            json=ref_payload,
+            headers=headers
+        )
+        assert ref_response.status_code == status.HTTP_400_BAD_REQUEST, ref_response.text
 
 class TestGenericResourceMetadata:
     """[通用] 测试对 Resource 逻辑实体（元数据）的通用读写接口。"""
@@ -92,6 +159,21 @@ class TestGenericResourceMetadata:
         # 验证特定于类型的字段存在
         if created_resource.resource_type.name == 'tenantdb':
             assert 'tables' in data["workspace_instance"]
+
+    async def test_list_instance_dependencies(
+        self,
+        client: AsyncClient,
+        auth_headers_factory: Callable,
+        registered_user_with_pro: UserContext,
+        created_resource: Resource
+    ):
+        """验证实例依赖解析接口可返回依赖列表。"""
+        headers = await auth_headers_factory(registered_user_with_pro)
+        instance_uuid = created_resource.workspace_instance.uuid
+        response = await client.get(f"/api/v1/instances/{instance_uuid}/dependencies", headers=headers)
+        assert response.status_code == status.HTTP_200_OK, response.text
+        data = response.json()["data"]
+        assert isinstance(data, list)
 
     async def test_update_resource_metadata_success(self, client: AsyncClient, auth_headers_factory: Callable, registered_user_with_pro: UserContext, created_resource: Resource, db_session: AsyncSession):
         """[参数化] 成功更新Resource元数据，并验证变更已同步到工作区实例。"""

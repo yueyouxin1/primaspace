@@ -103,3 +103,10 @@ class InstanceRead(BaseModel):
             "created_at": data.created_at,
             "creator": CreatorInfo.model_validate(data.creator) if data.creator else None,
         }
+
+class ResourceDependencyRead(BaseModel):
+    resource_uuid: str
+    instance_uuid: str
+    alias: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)

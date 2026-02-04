@@ -230,7 +230,7 @@ class AgentService(ResourceImplementationService):
         if not instance: raise NotFoundError("Agent not found")
         await self._check_execute_perm(instance)
 
-        workspace = runtime_workspace or instance.resource.project.workspace
+        workspace = runtime_workspace or instance.resource.workspace
 
         # 2. Parse Configuration
         try:

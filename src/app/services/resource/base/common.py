@@ -14,7 +14,7 @@ class CommonResourceService(BaseService):
         self.instance_dao = ResourceInstanceDao(context.db)
 
     async def _check_execute_perm(self, instance: ResourceInstance) -> ResourceInstance:
-        workspace = instance.resource.project.workspace
+        workspace = instance.resource.workspace
         perm_target = self.context.actor if instance.visibility == 'public' else workspace
         await self.context.perm_evaluator.ensure_can(["resource:execute"], target=perm_target)
         if instance.status not in [VersionStatus.PUBLISHED, VersionStatus.WORKSPACE]:

@@ -255,7 +255,7 @@ class ToolService(ResourceImplementationService):
         # 领域服务自治：自己加载完整的 ORM 对象
         instance = await self.get_by_uuid(instance_uuid)
         await self._check_execute_perm(instance)
-        workspace = runtime_workspace or instance.resource.project.workspace
+        workspace = runtime_workspace or instance.resource.workspace
         billing_entity = workspace.billing_owner
 
         # 1. 准备 Trace Attributes

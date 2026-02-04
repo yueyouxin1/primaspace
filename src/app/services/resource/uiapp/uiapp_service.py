@@ -110,7 +110,7 @@ class UiAppService(ResourceImplementationService):
         if app.status != VersionStatus.WORKSPACE:
             raise ServiceException("Only workspace instances can be edited.")
         # 鉴权
-        await self.context.perm_evaluator.ensure_can(["resource:update"], target=app.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:update"], target=app.resource.workspace)
         return app
 
     # ==========================================================================

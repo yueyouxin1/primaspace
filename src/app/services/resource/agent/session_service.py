@@ -47,7 +47,7 @@ class SessionService(BaseService):
         
         # 权限检查：用户是否有权访问该 Agent
         # 简化逻辑：如果是公开的或工作区内的成员
-        workspace = instance.resource.project.workspace
+        workspace = instance.resource.workspace
         await self.context.perm_evaluator.ensure_can(["resource:execute"], target=workspace)
 
         session = ChatSession(

@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload, selectinload, with_polymorphic
 from typing import Optional, List, Dict
 from app.dao.base_dao import BaseDao
-from app.models.workspace import Project
+from app.models.workspace import Workspace
 from app.models.resource import Resource, ResourceInstance, ALL_INSTANCE_TYPES
 
 # ALL_INSTANCE_TYPES = ResourceInstance.__subclasses__()
@@ -48,7 +48,10 @@ class ResourceDao(BaseDao[Resource]):
             select(Resource)
             .where(Resource.uuid == resource_uuid)
             .options(
-                joinedload(Resource.project).joinedload(Project.workspace),
+                joinedload(Resource.workspace).options(
+                    joinedload(Workspace.user_owner),
+                    joinedload(Workspace.team)
+                ),
                 joinedload(Resource.creator),
                 # [关键] 使用预先构建好的、动态的加载器
                 *self.workspace_instance_loaders,
@@ -58,10 +61,10 @@ class ResourceDao(BaseDao[Resource]):
         result = await self.db_session.execute(stmt)
         return result.scalars().first()
 
-    async def get_resources_by_project_id(self, project_id: int) -> List[Resource]:
-        """获取指定项目下的所有资源，并预加载必要信息以便序列化。"""
+    async def get_resources_by_workspace_id(self, workspace_id: int) -> List[Resource]:
+        """获取指定工作空间下的所有资源，并预加载必要信息以便序列化。"""
         return await self.get_list(
-            where={"project_id": project_id},
+            where={"workspace_id": workspace_id},
             # 预加载关系以支持 ResourceRead schema
             withs=["creator", "resource_type", "workspace_instance", "latest_published_instance"],
             order=[self.model.created_at.desc()]
@@ -87,7 +90,7 @@ class ResourceInstanceDao(BaseDao[ResourceInstance]):
     async def get_runtime_by_uuid(self, instance_uuid: str) -> ResourceInstance:
         """
         获取运行时必要的数据
-        这里必须加载 project.workspace所有者。
+        这里必须加载 workspace 所有者。
         """
         polymorphic_loader = self.polymorphic_loader
         stmt = (
@@ -96,8 +99,7 @@ class ResourceInstanceDao(BaseDao[ResourceInstance]):
             .options(
                 # 这是授权所需的最小数据路径
                 joinedload(polymorphic_loader.resource)
-                .joinedload(Resource.project)
-                .joinedload(Project.workspace)
+                .joinedload(Resource.workspace)
                 .options(  # 在 Workspace 级别同时加载两个关系
                     joinedload(Workspace.user_owner),
                     joinedload(Workspace.team)

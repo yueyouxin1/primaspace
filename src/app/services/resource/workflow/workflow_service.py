@@ -362,7 +362,7 @@ class WorkflowService(ResourceImplementationService):
         if not instance: raise NotFoundError("Workflow not found")
         await self._check_execute_perm(instance)
         
-        workspace = runtime_workspace or instance.resource.project.workspace
+        workspace = runtime_workspace or instance.resource.workspace
 
         billing_entity = workspace.billing_owner
 

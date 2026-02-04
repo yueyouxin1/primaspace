@@ -592,7 +592,12 @@ async def created_project_in_team_ws(
     return project
 
 @pytest.fixture
-def created_resource_factory(client: AsyncClient, auth_headers_factory: Callable, registered_user_with_pro: UserContext, created_project_in_personal_ws: Project, db_session: AsyncSession) -> Callable:
+def created_resource_factory(
+    client: AsyncClient,
+    auth_headers_factory: Callable,
+    registered_user_with_pro: UserContext,
+    db_session: AsyncSession
+) -> Callable:
     """
     [工厂 Fixture] 一个可复用的工厂，用于通过API创建任何类型的资源。
     可被其他测试文件（如 test_tool_execution.py）导入和使用。
@@ -605,7 +610,8 @@ def created_resource_factory(client: AsyncClient, auth_headers_factory: Callable
             "description": f"A test resource of type {resource_type}."
         }
         
-        response = await client.post(f"/api/v1/projects/{created_project_in_personal_ws.uuid}/resources", json=payload, headers=headers)
+        personal_workspace = registered_user_with_pro.personal_workspace
+        response = await client.post(f"/api/v1/workspaces/{personal_workspace.uuid}/resources", json=payload, headers=headers)
         assert response.status_code == status.HTTP_201_CREATED, f"Failed to create resource of type {resource_type}: {response.text}"
         
         resource_uuid = response.json()["data"]["uuid"]
