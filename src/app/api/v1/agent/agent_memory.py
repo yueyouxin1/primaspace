@@ -32,7 +32,7 @@ async def create_agent_memory(
     agent_service = AgentService(context)
     agent = await agent_service.get_by_uuid(agent_uuid)
     # 鉴权：Update (必须是开发者)
-    await context.perm_evaluator.ensure_can(["resource:update"], target=agent.resource.project.workspace)
+    await context.perm_evaluator.ensure_can(["resource:update"], target=agent.resource.workspace)
     
     service = AgentMemoryVarService(context)
     new_memory = await service.create_memory(agent.version_id, data)
@@ -48,7 +48,7 @@ async def update_agent_memory(
     agent_service = AgentService(context)
     agent = await agent_service.get_by_uuid(agent_uuid)
     # 鉴权
-    await context.perm_evaluator.ensure_can(["resource:update"], target=agent.resource.project.workspace)
+    await context.perm_evaluator.ensure_can(["resource:update"], target=agent.resource.workspace)
     
     service = AgentMemoryVarService(context)
     updated = await service.update_memory(agent.version_id, memory_id, data)
@@ -63,7 +63,7 @@ async def delete_agent_memory(
     agent_service = AgentService(context)
     agent = await agent_service.get_by_uuid(agent_uuid)
     # 鉴权
-    await context.perm_evaluator.ensure_can(["resource:update"], target=agent.resource.project.workspace)
+    await context.perm_evaluator.ensure_can(["resource:update"], target=agent.resource.workspace)
     
     service = AgentMemoryVarService(context)
     await service.delete_memory(agent.version_id, memory_id)

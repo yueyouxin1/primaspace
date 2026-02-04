@@ -65,7 +65,7 @@ class TenantDbService(ResourceImplementationService):
         """
         instance = await self.get_by_uuid(instance_uuid)
         await self._check_execute_perm(instance)
-        workspace = runtime_workspace or instance.resource.project.workspace
+        workspace = runtime_workspace or instance.resource.workspace
         billing_entity = workspace.billing_owner
         inputs = execute_params.inputs
         action = inputs.action
@@ -433,13 +433,13 @@ class TenantDbService(ResourceImplementationService):
         # DAO的withs预加载已经处理了列信息，这里直接返回即可
         # 1. 权限和实例加载
         instance = await self.get_by_uuid(instance_uuid)
-        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.workspace)
         return instance.tables
 
     async def get_table_by_uuid(self, instance_uuid: str, table_uuid: str) -> TenantTable:
         # 1. 权限和实例加载
         instance = await self.dao.get_by_uuid(instance_uuid)
-        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.workspace)
         """通过UUID获取表的元数据。"""
         table_meta = await self.table_dao.get_one(
             where={"uuid": table_uuid, "tenantdb_id": instance.version_id},
@@ -456,7 +456,7 @@ class TenantDbService(ResourceImplementationService):
         """
         # 1. 权限和实例加载
         instance = await self.dao.get_by_uuid(instance_uuid)
-        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.project.workspace)     
+        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.workspace)     
         table_meta = await self.get_table_by_uuid(instance_uuid, table_uuid)
         original_name = table_meta.name
 
@@ -485,7 +485,7 @@ class TenantDbService(ResourceImplementationService):
         """删除一张表（元数据和物理表）。"""
         # 1. 权限和实例加载
         instance = await self.dao.get_by_uuid(instance_uuid)
-        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.project.workspace)   
+        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.workspace)   
         table_meta = await self.get_table_by_uuid(instance_uuid, table_uuid)
         
         # 补偿事务：先删物理表
@@ -617,7 +617,7 @@ class TenantDbService(ResourceImplementationService):
     async def create_table(self, instance_uuid: str, table_data: TenantTableCreate) -> TenantTable:
         # 1. 权限和实例加载
         instance = await self.dao.get_by_uuid(instance_uuid)
-        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.workspace)
         # [REFACTOR 1] 在最开始就进行所有标识符的验证
         self._validate_identifier(table_data.name)
         for col in table_data.columns:

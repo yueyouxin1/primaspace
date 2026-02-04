@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from app.core.context import AppContext
-from app.models import User, Team, Workspace, Project, Product, Feature
+from app.models import User, Team, Workspace, Product, Feature
 from app.models.resource import Resource, ResourceInstance, VersionStatus
 from app.dao.resource.resource_dao import ResourceInstanceDao
 from app.services.resource.base.base_resource_service import BaseResourceService
@@ -35,8 +35,7 @@ class PermissionPerformanceTester:
             .where(ResourceInstance.uuid == instance_uuid)
             .options(
                 joinedload(ResourceInstance.resource)
-                .joinedload(Resource.project)
-                .joinedload(Project.workspace)
+                .joinedload(Resource.workspace)
                 .options(
                     joinedload(Workspace.user_owner),
                     joinedload(Workspace.team)
@@ -45,8 +44,8 @@ class PermissionPerformanceTester:
         )
         result = await self.db.execute(stmt)
         instance = result.scalars().first()
-        if instance and instance.resource and instance.resource.project:
-            workspace = instance.resource.project.workspace
+        if instance and instance.resource and instance.resource.workspace:
+            workspace = instance.resource.workspace
             _ = workspace.user_owner
             _ = workspace.team
             print(f"预加载 - Workspace ID: {workspace.id if workspace else 'None'}")
@@ -56,22 +55,19 @@ class PermissionPerformanceTester:
         withs = [{
             "name": "resource",
             "withs": [{
-                "name": "project", 
-                "withs": [{
-                    "name": "workspace",
-                    "withs": [
-                        {"name": "user_owner"},
-                        {"name": "team"}
-                    ]
-                }]
+                "name": "workspace",
+                "withs": [
+                    {"name": "user_owner"},
+                    {"name": "team"}
+                ]
             }]
         }]
         instance = await self.dao.get_one(
             where={"uuid": instance_uuid},
             withs=withs
         )
-        if instance and instance.resource and instance.resource.project:
-            workspace = instance.resource.project.workspace
+        if instance and instance.resource and instance.resource.workspace:
+            workspace = instance.resource.workspace
             _ = workspace.user_owner
             _ = workspace.team
             print(f"BaseDao - Workspace ID: {workspace.id if workspace else 'None'}")
@@ -90,13 +86,10 @@ class PermissionPerformanceTester:
         await self.db.refresh(instance, ['resource'])
         
         if instance.resource:
-            await self.db.refresh(instance.resource, ['project'])
+            await self.db.refresh(instance.resource, ['workspace'])
         
-        if instance.resource and instance.resource.project:
-            await self.db.refresh(instance.resource.project, ['workspace'])
-        
-        if instance.resource and instance.resource.project and instance.resource.project.workspace:
-            workspace = instance.resource.project.workspace
+        if instance.resource and instance.resource.workspace:
+            workspace = instance.resource.workspace
             await self.db.refresh(workspace, ['user_owner', 'team'])
             print(f"懒加载 - Workspace ID: {workspace.id if workspace else 'None'}")
         
@@ -118,21 +111,15 @@ class PermissionPerformanceTester:
             resource_result = await self.db.execute(resource_stmt)
             instance.resource = resource_result.scalars().first()
         
-        # 3. 查询Project
-        if instance.resource and instance.resource.project_id:
-            project_stmt = select(Project).where(Project.id == instance.resource.project_id)
-            project_result = await self.db.execute(project_stmt)
-            instance.resource.project = project_result.scalars().first()
-        
-        # 4. 查询Workspace
-        if instance.resource and instance.resource.project and instance.resource.project.workspace_id:
-            workspace_stmt = select(Workspace).where(Workspace.id == instance.resource.project.workspace_id)
+        # 3. 查询Workspace
+        if instance.resource and instance.resource.workspace_id:
+            workspace_stmt = select(Workspace).where(Workspace.id == instance.resource.workspace_id)
             workspace_result = await self.db.execute(workspace_stmt)
-            instance.resource.project.workspace = workspace_result.scalars().first()
+            instance.resource.workspace = workspace_result.scalars().first()
         
-        # 5. 查询User和Team
-        if instance.resource and instance.resource.project and instance.resource.project.workspace:
-            workspace = instance.resource.project.workspace
+        # 4. 查询User和Team
+        if instance.resource and instance.resource.workspace:
+            workspace = instance.resource.workspace
             
             # 查询User
             if workspace.owner_user_id:
@@ -157,8 +144,7 @@ class PermissionPerformanceTester:
             .where(ResourceInstance.uuid == instance_uuid)
             .options(
                 selectinload(ResourceInstance.resource)
-                .selectinload(Resource.project)
-                .selectinload(Project.workspace)
+                .selectinload(Resource.workspace)
                 .options(
                     selectinload(Workspace.user_owner),
                     selectinload(Workspace.team)
@@ -167,8 +153,8 @@ class PermissionPerformanceTester:
         )
         result = await self.db.execute(stmt)
         instance = result.scalars().first()
-        if instance and instance.resource and instance.resource.project:
-            workspace = instance.resource.project.workspace
+        if instance and instance.resource and instance.resource.workspace:
+            workspace = instance.resource.workspace
             print(f"Selectin加载 - Workspace ID: {workspace.id if workspace else 'None'}")
         return instance
 

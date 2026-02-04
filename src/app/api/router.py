@@ -114,6 +114,11 @@ router.include_router(
     tags=["Resources"]
 )
 router.include_router(
+    resource.workspace_router,
+    prefix="/workspaces/{workspace_uuid}/resources",
+    tags=["Resources"]
+)
+router.include_router(
     resource.project_router,
     prefix="/projects/{project_uuid}/resources",
     tags=["Resources"]
