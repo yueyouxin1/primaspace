@@ -12,6 +12,17 @@ class ResourceRefDao(BaseDao[ResourceRef]):
     def __init__(self, db_session: AsyncSession):
         super().__init__(ResourceRef, db_session)
 
+    async def list_by_source_instance_id(self, source_instance_id: int) -> List[ResourceRef]:
+        stmt = (
+            select(ResourceRef)
+            .where(ResourceRef.source_instance_id == source_instance_id)
+            .options(
+                joinedload(ResourceRef.target_instance).joinedload(ResourceInstance.resource)
+            )
+        )
+        result = await self.db_session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_dependencies(self, source_instance_id: int, source_node_uuid: str = None) -> List[ResourceRef]:
         """
         获取指定实例的所有出站依赖（它引用了谁）。

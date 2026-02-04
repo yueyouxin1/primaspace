@@ -7,7 +7,9 @@ from app.core.context import AppContext
 from app.api.dependencies.context import AuthContextDep
 from app.schemas.common import JsonResponse, MsgResponse
 from app.schemas.project.project_schemas import ProjectRead, ProjectCreate, ProjectUpdate
+from app.schemas.project.dependency_graph_schemas import ProjectDependencyGraph
 from app.services.project.project_service import ProjectService
+from app.services.project.dependency_graph_service import ProjectDependencyGraphService
 from app.services.exceptions import PermissionDeniedError, NotFoundError
 
 # 创建两个独立的router，以实现混合路由模式
@@ -81,6 +83,24 @@ async def delete_project(
         service = ProjectService(context)
         await service.delete_project_by_uuid(project_uuid, context.actor)
         return MsgResponse(msg="Project deleted successfully.")
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+@router.get(
+    "/{project_uuid}/dependency-graph",
+    response_model=JsonResponse[ProjectDependencyGraph],
+    summary="Get Project Dependency Graph"
+)
+async def get_dependency_graph(
+    project_uuid: str,
+    context: AppContext = AuthContextDep
+):
+    try:
+        service = ProjectDependencyGraphService(context)
+        graph = await service.build_graph(project_uuid, context.actor)
+        return JsonResponse(data=graph)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionDeniedError as e:
