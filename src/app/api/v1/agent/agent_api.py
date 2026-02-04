@@ -43,7 +43,6 @@ async def stream_agent(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            # 如果你前面有 Nginx，强烈建议加：
             "X-Accel-Buffering": "no",
         },
     )

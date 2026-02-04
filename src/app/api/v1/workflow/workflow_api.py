@@ -54,11 +54,18 @@ async def stream_workflow(
     
     async def sse_generator():
         result = await service.async_execute(uuid, request, context.actor)
-        generator = result.generator
-        async for event in generator:
+        async for event in result.generator:
             yield event.to_sse()
 
-    return StreamingResponse(sse_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 # --- WebSocket Endpoint ---
 
