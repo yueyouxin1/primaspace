@@ -76,6 +76,8 @@ class Project(Base):
     description = Column(Text, nullable=True, comment="项目描述")
     # 增强/QoL
     avatar = Column(String(512), nullable=True, comment="项目图标URL")
+    # 项目级环境配置 (可选上下文)
+    env_config = Column(JSON, nullable=False, default={}, comment="项目级环境配置 (运行时可选注入)")
     # 必要
     main_resource_id = Column(Integer, ForeignKey('ai_resources.id', use_alter=True, ondelete='SET NULL'), nullable=True, comment="项目的主资源/入口资源ID")
     # 必要

@@ -7,6 +7,7 @@ from app.core.context import AppContext
 from app.api.dependencies.context import AuthContextDep
 from app.schemas.common import JsonResponse, MsgResponse
 from app.schemas.project.project_schemas import ProjectRead, ProjectCreate, ProjectUpdate
+from app.schemas.project.project_env_schemas import ProjectEnvConfigRead, ProjectEnvConfigUpdate
 from app.schemas.project.project_dependency_schemas import ProjectDependencyGraphRead
 from app.services.project.project_service import ProjectService
 from app.services.project.project_dependency_service import ProjectDependencyService
@@ -83,6 +84,61 @@ async def delete_project(
         service = ProjectService(context)
         await service.delete_project_by_uuid(project_uuid, context.actor)
         return MsgResponse(msg="Project deleted successfully.")
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+@router.get(
+    "/{project_uuid}/env-config",
+    response_model=JsonResponse[ProjectEnvConfigRead],
+    summary="Get Project Environment Config"
+)
+async def get_project_env_config(
+    project_uuid: str,
+    context: AppContext = AuthContextDep
+):
+    try:
+        service = ProjectService(context)
+        config = await service.get_project_env_config(project_uuid, context.actor)
+        return JsonResponse(data=config)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+@router.put(
+    "/{project_uuid}/env-config",
+    response_model=JsonResponse[ProjectEnvConfigRead],
+    summary="Update Project Environment Config"
+)
+async def update_project_env_config(
+    project_uuid: str,
+    env_config_in: ProjectEnvConfigUpdate,
+    context: AppContext = AuthContextDep
+):
+    try:
+        service = ProjectService(context)
+        config = await service.update_project_env_config(project_uuid, env_config_in, context.actor)
+        return JsonResponse(data=config)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+@router.delete(
+    "/{project_uuid}/env-config",
+    response_model=MsgResponse,
+    summary="Clear Project Environment Config"
+)
+async def clear_project_env_config(
+    project_uuid: str,
+    context: AppContext = AuthContextDep
+):
+    try:
+        service = ProjectService(context)
+        await service.clear_project_env_config(project_uuid, context.actor)
+        return MsgResponse(msg="Project environment config cleared.")
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionDeniedError as e:

@@ -7,6 +7,7 @@ from app.models import User, Workspace, Project
 from app.dao.project.project_dao import ProjectDao
 from app.dao.workspace.workspace_dao import WorkspaceDao
 from app.schemas.project.project_schemas import ProjectCreate, ProjectUpdate, ProjectRead, CreatorInfo
+from app.schemas.project.project_env_schemas import ProjectEnvConfigRead, ProjectEnvConfigUpdate
 from app.services.base_service import BaseService
 from app.services.exceptions import NotFoundError
 
@@ -41,6 +42,22 @@ class ProjectService(BaseService):
     async def delete_project_by_uuid(self, project_uuid: str, actor: User) -> None:
         """Delete a project (no return value)"""
         await self._delete_project_by_uuid(project_uuid, actor)
+
+    async def get_project_env_config(self, project_uuid: str, actor: User) -> ProjectEnvConfigRead:
+        project = await self._get_project_by_uuid(project_uuid, actor)
+        return ProjectEnvConfigRead.model_validate(project)
+
+    async def update_project_env_config(
+        self,
+        project_uuid: str,
+        update_data: ProjectEnvConfigUpdate,
+        actor: User
+    ) -> ProjectEnvConfigRead:
+        project = await self._update_project_env_config(project_uuid, update_data, actor)
+        return ProjectEnvConfigRead.model_validate(project)
+
+    async def clear_project_env_config(self, project_uuid: str, actor: User) -> None:
+        await self._clear_project_env_config(project_uuid, actor)
 
     # --- Internal ORM-returning "Workhorse" Method ---
     async def _create_project_in_workspace(self, workspace_uuid: str, project_data: ProjectCreate, actor: User) -> Project:
@@ -105,4 +122,31 @@ class ProjectService(BaseService):
         await self.context.perm_evaluator.ensure_can(["project:delete"], target=project.workspace)
         
         await self.db.delete(project)
+        await self.db.flush()
+
+    async def _update_project_env_config(
+        self,
+        project_uuid: str,
+        update_data: ProjectEnvConfigUpdate,
+        actor: User
+    ) -> Project:
+        project = await self.dao.get_by_uuid(project_uuid)
+        if not project:
+            raise NotFoundError("Project not found.")
+
+        await self.context.perm_evaluator.ensure_can(["project:update"], target=project.workspace)
+
+        project.env_config = update_data.env_config
+        await self.db.flush()
+        await self.db.refresh(project)
+        return project
+
+    async def _clear_project_env_config(self, project_uuid: str, actor: User) -> None:
+        project = await self.dao.get_by_uuid(project_uuid)
+        if not project:
+            raise NotFoundError("Project not found.")
+
+        await self.context.perm_evaluator.ensure_can(["project:update"], target=project.workspace)
+
+        project.env_config = {}
         await self.db.flush()

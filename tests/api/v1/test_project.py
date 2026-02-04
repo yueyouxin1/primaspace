@@ -141,6 +141,46 @@ class TestProjectLifecycle:
         node_resource_uuids = {node["resource_uuid"] for node in graph["nodes"]}
         assert resource.uuid in node_resource_uuids
 
+    async def test_project_env_config_crud(
+        self,
+        client: AsyncClient,
+        auth_headers_factory: Callable,
+        registered_user_with_pro: UserContext,
+        created_project_in_personal_ws: Project,
+    ):
+        """[成功路径] 验证项目环境配置的读取、更新与清空。"""
+        headers = await auth_headers_factory(registered_user_with_pro)
+        project_uuid = created_project_in_personal_ws.uuid
+
+        get_response = await client.get(
+            f"/api/v1/projects/{project_uuid}/env-config",
+            headers=headers,
+        )
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["data"]["env_config"] == {}
+
+        update_payload = {"env_config": {"default_prompt": "hello", "workflow_uuid": "wf-123"}}
+        update_response = await client.put(
+            f"/api/v1/projects/{project_uuid}/env-config",
+            json=update_payload,
+            headers=headers,
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+        assert update_response.json()["data"]["env_config"] == update_payload["env_config"]
+
+        clear_response = await client.delete(
+            f"/api/v1/projects/{project_uuid}/env-config",
+            headers=headers,
+        )
+        assert clear_response.status_code == status.HTTP_200_OK
+
+        get_after_clear = await client.get(
+            f"/api/v1/projects/{project_uuid}/env-config",
+            headers=headers,
+        )
+        assert get_after_clear.status_code == status.HTTP_200_OK
+        assert get_after_clear.json()["data"]["env_config"] == {}
+
 class TestProjectPermissions:
     """测试项目的权限隔离，权限继承自其所在的Workspace。"""
 
