@@ -14,7 +14,7 @@ dependencies = [
     "numpy (==1.26)",
     "numba (>=0.62.0,<0.63.0)",
     "pydub (>=0.25.1,<0.26.0)",
-    "fastapi (>=0.117.1,<0.118.0)",
+    "fastapi (>=0.118.0)",
     "uvicorn (>=0.37.0,<0.38.0)",
     "websockets (>=15.0.1,<16.0.0)",
     "sqlalchemy (>=2.0.43,<3.0.0)",
@@ -39,7 +39,11 @@ dependencies = [
     "jsonschema (>=4.25.1,<5.0.0)",
     "python-multipart (>=0.0.20,<0.0.21)",
     "arq (>=0.26.3,<0.27.0)",
-    "redis[hiredis] (>=4.6.0)"
+    "redis[hiredis] (>=4.6.0)",
+    "networkx (==3.4.2)",
+    "python-magic (==0.4.24)",
+    "tiktoken (>=0.12.0,<0.13.0)",
+    "sse-starlette (>=3.2.0,<4.0.0)"
 ]
 
 

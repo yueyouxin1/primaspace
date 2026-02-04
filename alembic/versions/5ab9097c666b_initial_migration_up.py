@@ -1,8 +1,8 @@
 """initial migration up
 
-Revision ID: 3368066de63d
+Revision ID: 5ab9097c666b
 Revises: 
-Create Date: 2026-01-28 16:42:00.467288
+Create Date: 2026-02-04 17:38:24.845708
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '3368066de63d'
+revision: str = '5ab9097c666b'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -89,6 +89,15 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_ai_workflow_node_defs_category'), 'ai_workflow_node_defs', ['category'], unique=False)
     op.create_index(op.f('ix_ai_workflow_node_defs_registry_id'), 'ai_workflow_node_defs', ['registry_id'], unique=True)
+    op.create_table('assets_intelligence',
+    sa.Column('content_hash', sa.String(length=128), nullable=False, comment='文件内容权威Hash (通常为OSS ETag)'),
+    sa.Column('status', sa.Enum('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', name='intelligencestatus'), nullable=False),
+    sa.Column('meta', sa.JSON(), nullable=True, comment='AI分析结果'),
+    sa.Column('is_vector_indexed', sa.Boolean(), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.PrimaryKeyConstraint('content_hash', name=op.f('pk_assets_intelligence'))
+    )
+    op.create_index(op.f('ix_assets_intelligence_is_vector_indexed'), 'assets_intelligence', ['is_vector_indexed'], unique=False)
     op.create_table('billing_accounts',
     sa.Column('id', sa.Integer(), nullable=False, comment='计费账户唯一主键ID'),
     sa.Column('uuid', sa.String(length=36), nullable=False, comment='计费账户的全局唯一标识符'),
@@ -276,6 +285,7 @@ def upgrade() -> None:
     sa.Column('owner_team_id', sa.Integer(), nullable=True),
     sa.Column('status', sa.Enum('ACTIVE', 'SUSPENDED', 'ARCHIVED', name='workspacestatus'), nullable=False, comment='工作空间状态 (活跃, 暂停, 归档)'),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('asset_config', sa.JSON(), nullable=True, comment='素材库策略配置'),
     sa.CheckConstraint('(owner_user_id IS NOT NULL AND owner_team_id IS NULL) OR (owner_user_id IS NULL AND owner_team_id IS NOT NULL)', name=op.f('ck_ai_workspaces_ck_workspace_owner_exclusive')),
     sa.ForeignKeyConstraint(['owner_team_id'], ['teams.id'], name=op.f('fk_ai_workspaces_owner_team_id_teams')),
     sa.ForeignKeyConstraint(['owner_user_id'], ['users.id'], name=op.f('fk_ai_workspaces_owner_user_id_users')),
@@ -356,6 +366,57 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_ai_projects_uuid'), 'ai_projects', ['uuid'], unique=True)
     op.create_index(op.f('ix_ai_projects_workspace_id'), 'ai_projects', ['workspace_id'], unique=False)
+    op.create_table('ai_resources',
+    sa.Column('id', sa.Integer(), nullable=False, comment='资源唯一主键ID'),
+    sa.Column('uuid', sa.String(length=36), nullable=False, comment='资源的全局唯一标识符'),
+    sa.Column('workspace_id', sa.Integer(), nullable=False, comment='所属工作空间ID'),
+    sa.Column('resource_type_id', sa.Integer(), nullable=False, comment='资源类型ID'),
+    sa.Column('category_id', sa.Integer(), nullable=True, comment='资源分类ID'),
+    sa.Column('name', sa.String(length=255), nullable=False, comment='资源的当前名称'),
+    sa.Column('description', sa.Text(), nullable=True, comment='资源的当前描述'),
+    sa.Column('avatar', sa.String(length=512), nullable=True, comment='资源图标URL'),
+    sa.Column('status', sa.Enum('ACTIVE', 'SUSPENDED', 'ARCHIVED', name='resourcestatus'), nullable=False, comment='平台级的资源总开关 (活跃, 暂停, 归档)'),
+    sa.Column('heat_value', sa.Integer(), nullable=False, comment='热度值，用于排序和推荐'),
+    sa.Column('workspace_instance_id', sa.Integer(), nullable=True),
+    sa.Column('latest_published_instance_id', sa.Integer(), nullable=True),
+    sa.Column('creator_id', sa.Integer(), nullable=False, comment='资源创建者的用户ID'),
+    sa.Column('last_modifier_id', sa.Integer(), nullable=True, comment='最后修改者的用户ID'),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False, comment='资源创建时间'),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False, comment='资源最后更新时间'),
+    sa.ForeignKeyConstraint(['category_id'], ['ai_resource_categories.id'], name=op.f('fk_ai_resources_category_id_ai_resource_categories')),
+    sa.ForeignKeyConstraint(['creator_id'], ['users.id'], name=op.f('fk_ai_resources_creator_id_users')),
+    sa.ForeignKeyConstraint(['last_modifier_id'], ['users.id'], name=op.f('fk_ai_resources_last_modifier_id_users')),
+    sa.ForeignKeyConstraint(['latest_published_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resources_latest_published_instance_id_ai_resource_instances'), ondelete='SET NULL', use_alter=True),
+    sa.ForeignKeyConstraint(['resource_type_id'], ['ai_resource_types.id'], name=op.f('fk_ai_resources_resource_type_id_ai_resource_types')),
+    sa.ForeignKeyConstraint(['workspace_id'], ['ai_workspaces.id'], name=op.f('fk_ai_resources_workspace_id_ai_workspaces'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['workspace_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resources_workspace_instance_id_ai_resource_instances'), ondelete='SET NULL', use_alter=True),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_resources'))
+    )
+    op.create_index(op.f('ix_ai_resources_category_id'), 'ai_resources', ['category_id'], unique=False)
+    op.create_index(op.f('ix_ai_resources_heat_value'), 'ai_resources', ['heat_value'], unique=False)
+    op.create_index(op.f('ix_ai_resources_resource_type_id'), 'ai_resources', ['resource_type_id'], unique=False)
+    op.create_index(op.f('ix_ai_resources_uuid'), 'ai_resources', ['uuid'], unique=True)
+    op.create_index(op.f('ix_ai_resources_workspace_id'), 'ai_resources', ['workspace_id'], unique=False)
+    op.create_table('assets_folders',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('uuid', sa.String(length=36), nullable=False),
+    sa.Column('workspace_id', sa.Integer(), nullable=False),
+    sa.Column('creator_id', sa.Integer(), nullable=True),
+    sa.Column('parent_id', sa.Integer(), nullable=True),
+    sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('is_deleted', sa.Boolean(), nullable=False),
+    sa.Column('deleted_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['creator_id'], ['users.id'], name=op.f('fk_assets_folders_creator_id_users')),
+    sa.ForeignKeyConstraint(['parent_id'], ['assets_folders.id'], name=op.f('fk_assets_folders_parent_id_assets_folders'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['workspace_id'], ['ai_workspaces.id'], name=op.f('fk_assets_folders_workspace_id_ai_workspaces'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_assets_folders'))
+    )
+    op.create_index(op.f('ix_assets_folders_is_deleted'), 'assets_folders', ['is_deleted'], unique=False)
+    op.create_index(op.f('ix_assets_folders_parent_id'), 'assets_folders', ['parent_id'], unique=False)
+    op.create_index(op.f('ix_assets_folders_uuid'), 'assets_folders', ['uuid'], unique=True)
+    op.create_index(op.f('ix_assets_folders_workspace_id'), 'assets_folders', ['workspace_id'], unique=False)
     op.create_table('roles',
     sa.Column('id', sa.Integer(), nullable=False, comment='角色唯一主键ID'),
     sa.Column('uuid', sa.String(length=36), nullable=False),
@@ -419,37 +480,90 @@ def upgrade() -> None:
     op.create_index(op.f('ix_activity_logs_actor_user_id'), 'activity_logs', ['actor_user_id'], unique=False)
     op.create_index(op.f('ix_activity_logs_parent_id'), 'activity_logs', ['parent_id'], unique=False)
     op.create_index(op.f('ix_activity_logs_timestamp'), 'activity_logs', ['timestamp'], unique=False)
-    op.create_table('ai_resources',
-    sa.Column('id', sa.Integer(), nullable=False, comment='资源唯一主键ID'),
-    sa.Column('uuid', sa.String(length=36), nullable=False, comment='资源的全局唯一标识符'),
-    sa.Column('project_id', sa.Integer(), nullable=False, comment='所属项目ID'),
-    sa.Column('resource_type_id', sa.Integer(), nullable=False, comment='资源类型ID'),
-    sa.Column('category_id', sa.Integer(), nullable=True, comment='资源分类ID'),
-    sa.Column('name', sa.String(length=255), nullable=False, comment='资源的当前名称'),
-    sa.Column('description', sa.Text(), nullable=True, comment='资源的当前描述'),
-    sa.Column('avatar', sa.String(length=512), nullable=True, comment='资源图标URL'),
-    sa.Column('status', sa.Enum('ACTIVE', 'SUSPENDED', 'ARCHIVED', name='resourcestatus'), nullable=False, comment='平台级的资源总开关 (活跃, 暂停, 归档)'),
-    sa.Column('heat_value', sa.Integer(), nullable=False, comment='热度值，用于排序和推荐'),
-    sa.Column('workspace_instance_id', sa.Integer(), nullable=True),
-    sa.Column('latest_published_instance_id', sa.Integer(), nullable=True),
-    sa.Column('creator_id', sa.Integer(), nullable=False, comment='资源创建者的用户ID'),
-    sa.Column('last_modifier_id', sa.Integer(), nullable=True, comment='最后修改者的用户ID'),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False, comment='资源创建时间'),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False, comment='资源最后更新时间'),
-    sa.ForeignKeyConstraint(['category_id'], ['ai_resource_categories.id'], name=op.f('fk_ai_resources_category_id_ai_resource_categories')),
-    sa.ForeignKeyConstraint(['creator_id'], ['users.id'], name=op.f('fk_ai_resources_creator_id_users')),
-    sa.ForeignKeyConstraint(['last_modifier_id'], ['users.id'], name=op.f('fk_ai_resources_last_modifier_id_users')),
-    sa.ForeignKeyConstraint(['latest_published_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resources_latest_published_instance_id_ai_resource_instances'), ondelete='SET NULL', use_alter=True),
-    sa.ForeignKeyConstraint(['project_id'], ['ai_projects.id'], name=op.f('fk_ai_resources_project_id_ai_projects'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['resource_type_id'], ['ai_resource_types.id'], name=op.f('fk_ai_resources_resource_type_id_ai_resource_types')),
-    sa.ForeignKeyConstraint(['workspace_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resources_workspace_instance_id_ai_resource_instances'), ondelete='SET NULL', use_alter=True),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_resources'))
+    op.create_table('ai_project_resource_refs',
+    sa.Column('id', sa.Integer(), nullable=False, comment='项目资源引用唯一主键ID'),
+    sa.Column('project_id', sa.Integer(), nullable=False, comment='项目ID'),
+    sa.Column('resource_id', sa.Integer(), nullable=False, comment='资源ID'),
+    sa.Column('alias', sa.String(length=255), nullable=True, comment='项目内别名'),
+    sa.Column('options', sa.JSON(), nullable=True, comment='项目级引用配置'),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False, comment='引用创建时间'),
+    sa.ForeignKeyConstraint(['project_id'], ['ai_projects.id'], name=op.f('fk_ai_project_resource_refs_project_id_ai_projects'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['resource_id'], ['ai_resources.id'], name=op.f('fk_ai_project_resource_refs_resource_id_ai_resources'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_project_resource_refs')),
+    sa.UniqueConstraint('project_id', 'resource_id', name='uq_project_resource')
     )
-    op.create_index(op.f('ix_ai_resources_category_id'), 'ai_resources', ['category_id'], unique=False)
-    op.create_index(op.f('ix_ai_resources_heat_value'), 'ai_resources', ['heat_value'], unique=False)
-    op.create_index(op.f('ix_ai_resources_project_id'), 'ai_resources', ['project_id'], unique=False)
-    op.create_index(op.f('ix_ai_resources_resource_type_id'), 'ai_resources', ['resource_type_id'], unique=False)
-    op.create_index(op.f('ix_ai_resources_uuid'), 'ai_resources', ['uuid'], unique=True)
+    op.create_index(op.f('ix_ai_project_resource_refs_project_id'), 'ai_project_resource_refs', ['project_id'], unique=False)
+    op.create_index(op.f('ix_ai_project_resource_refs_resource_id'), 'ai_project_resource_refs', ['resource_id'], unique=False)
+    op.create_table('ai_resource_instances',
+    sa.Column('id', sa.Integer(), nullable=False, comment='版本实体的唯一ID (version_id)'),
+    sa.Column('uuid', sa.String(length=36), nullable=False),
+    sa.Column('parent_version_id', sa.Integer(), nullable=True),
+    sa.Column('resource_id', sa.Integer(), nullable=False, comment='关联的资源ID'),
+    sa.Column('resource_type', sa.String(length=50), nullable=False, comment='资源类型, 其值来源于 Resource.resource_type.name'),
+    sa.Column('version_tag', sa.String(length=50), nullable=False, comment="版本标签 (e.g., '__workspace__', '1.0.0', 'latest')"),
+    sa.Column('name', sa.String(length=255), nullable=False, comment='此版本的名称'),
+    sa.Column('description', sa.Text(), nullable=True, comment='此版本的描述'),
+    sa.Column('version_notes', sa.Text(), nullable=True, comment='版本更新说明'),
+    sa.Column('status', sa.Enum('WORKSPACE', 'DRAFT', 'PUBLISHED', 'ARCHIVED', 'PENDING_APPROVAL', name='versionstatus'), nullable=False, comment='版本状态'),
+    sa.Column('visibility', sa.String(length=50), nullable=True, comment='发布时的可见范围, 其值来源于 Resource.resource_type.allowed_visibilities'),
+    sa.Column('channel', sa.String(length=50), nullable=True, comment='发布渠道, 其值来源于 Resource.resource_type.allowed_channels'),
+    sa.Column('pricing_model', sa.JSON(), nullable=True, comment="定价模型 (e.g., {'type': 'per_call', 'price': 0.001})"),
+    sa.Column('api_policy_id', sa.Integer(), nullable=True, comment='本次发布应用的API策略ID'),
+    sa.Column('linked_feature_id', sa.Integer(), nullable=True),
+    sa.Column('creator_id', sa.Integer(), nullable=False, comment='版本创建者的用户ID'),
+    sa.Column('published_by', sa.Integer(), nullable=True, comment='执行发布操作的用户ID'),
+    sa.Column('approver_id', sa.Integer(), nullable=True, comment='审核通过的用户ID'),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False, comment='版本创建时间'),
+    sa.Column('published_at', sa.DateTime(), nullable=True, comment='版本发布生效时间'),
+    sa.ForeignKeyConstraint(['api_policy_id'], ['ai_api_policies.id'], name=op.f('fk_ai_resource_instances_api_policy_id_ai_api_policies')),
+    sa.ForeignKeyConstraint(['approver_id'], ['users.id'], name=op.f('fk_ai_resource_instances_approver_id_users')),
+    sa.ForeignKeyConstraint(['creator_id'], ['users.id'], name=op.f('fk_ai_resource_instances_creator_id_users')),
+    sa.ForeignKeyConstraint(['linked_feature_id'], ['features.id'], name=op.f('fk_ai_resource_instances_linked_feature_id_features')),
+    sa.ForeignKeyConstraint(['parent_version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resource_instances_parent_version_id_ai_resource_instances'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['published_by'], ['users.id'], name=op.f('fk_ai_resource_instances_published_by_users')),
+    sa.ForeignKeyConstraint(['resource_id'], ['ai_resources.id'], name=op.f('fk_ai_resource_instances_resource_id_ai_resources'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_resource_instances')),
+    sa.UniqueConstraint('resource_id', 'version_tag', name='uq_resource_version_tag')
+    )
+    op.create_index(op.f('ix_ai_resource_instances_linked_feature_id'), 'ai_resource_instances', ['linked_feature_id'], unique=False)
+    op.create_index(op.f('ix_ai_resource_instances_parent_version_id'), 'ai_resource_instances', ['parent_version_id'], unique=False)
+    op.create_index(op.f('ix_ai_resource_instances_resource_id'), 'ai_resource_instances', ['resource_id'], unique=False)
+    op.create_index(op.f('ix_ai_resource_instances_status'), 'ai_resource_instances', ['status'], unique=False)
+    op.create_index(op.f('ix_ai_resource_instances_uuid'), 'ai_resource_instances', ['uuid'], unique=True)
+    op.create_index(op.f('ix_ai_resource_instances_version_tag'), 'ai_resource_instances', ['version_tag'], unique=False)
+    op.create_index('ix_resource_workspace_status', 'ai_resource_instances', ['resource_id'], unique=True, postgresql_where=sa.text("status = 'WORKSPACE'"))
+    op.create_table('assets',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('uuid', sa.String(length=36), nullable=False),
+    sa.Column('workspace_id', sa.Integer(), nullable=False),
+    sa.Column('folder_id', sa.Integer(), nullable=True),
+    sa.Column('creator_id', sa.Integer(), nullable=True),
+    sa.Column('storage_provider', sa.String(length=50), nullable=False),
+    sa.Column('real_name', sa.String(length=1024), nullable=False, comment='存储桶中的完整物理Key'),
+    sa.Column('url', sa.String(length=2048), nullable=False, comment='访问URL'),
+    sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('size', sa.BigInteger(), nullable=False),
+    sa.Column('mime_type', sa.String(length=100), nullable=False),
+    sa.Column('type', sa.Enum('IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT', 'OTHER', name='assettype'), nullable=False),
+    sa.Column('content_hash', sa.String(length=128), nullable=True),
+    sa.Column('status', sa.Enum('PENDING', 'ACTIVE', 'ARCHIVED', name='assetstatus'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('is_deleted', sa.Boolean(), nullable=False),
+    sa.Column('deleted_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['content_hash'], ['assets_intelligence.content_hash'], name=op.f('fk_assets_content_hash_assets_intelligence')),
+    sa.ForeignKeyConstraint(['creator_id'], ['users.id'], name=op.f('fk_assets_creator_id_users')),
+    sa.ForeignKeyConstraint(['folder_id'], ['assets_folders.id'], name=op.f('fk_assets_folder_id_assets_folders'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['workspace_id'], ['ai_workspaces.id'], name=op.f('fk_assets_workspace_id_ai_workspaces'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_assets'))
+    )
+    op.create_index(op.f('ix_assets_content_hash'), 'assets', ['content_hash'], unique=False)
+    op.create_index(op.f('ix_assets_folder_id'), 'assets', ['folder_id'], unique=False)
+    op.create_index(op.f('ix_assets_is_deleted'), 'assets', ['is_deleted'], unique=False)
+    op.create_index(op.f('ix_assets_status'), 'assets', ['status'], unique=False)
+    op.create_index(op.f('ix_assets_type'), 'assets', ['type'], unique=False)
+    op.create_index(op.f('ix_assets_uuid'), 'assets', ['uuid'], unique=True)
+    op.create_index(op.f('ix_assets_workspace_id'), 'assets', ['workspace_id'], unique=False)
     op.create_table('invitations',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('uuid', sa.String(length=36), nullable=False),
@@ -502,44 +616,128 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['role_id'], ['roles.id'], name=op.f('fk_role_permissions_role_id_roles'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('role_id', 'permission_id', name=op.f('pk_role_permissions'))
     )
-    op.create_table('ai_resource_instances',
-    sa.Column('id', sa.Integer(), nullable=False, comment='版本实体的唯一ID (version_id)'),
-    sa.Column('uuid', sa.String(length=36), nullable=False),
-    sa.Column('parent_version_id', sa.Integer(), nullable=True),
-    sa.Column('resource_id', sa.Integer(), nullable=False, comment='关联的资源ID'),
-    sa.Column('resource_type', sa.String(length=50), nullable=False, comment='资源类型, 其值来源于 Resource.resource_type.name'),
-    sa.Column('version_tag', sa.String(length=50), nullable=False, comment="版本标签 (e.g., '__workspace__', '1.0.0', 'latest')"),
-    sa.Column('name', sa.String(length=255), nullable=False, comment='此版本的名称'),
-    sa.Column('description', sa.Text(), nullable=True, comment='此版本的描述'),
-    sa.Column('version_notes', sa.Text(), nullable=True, comment='版本更新说明'),
-    sa.Column('status', sa.Enum('WORKSPACE', 'DRAFT', 'PUBLISHED', 'ARCHIVED', 'PENDING_APPROVAL', name='versionstatus'), nullable=False, comment='版本状态'),
-    sa.Column('visibility', sa.String(length=50), nullable=True, comment='发布时的可见范围, 其值来源于 Resource.resource_type.allowed_visibilities'),
-    sa.Column('channel', sa.String(length=50), nullable=True, comment='发布渠道, 其值来源于 Resource.resource_type.allowed_channels'),
-    sa.Column('pricing_model', sa.JSON(), nullable=True, comment="定价模型 (e.g., {'type': 'per_call', 'price': 0.001})"),
-    sa.Column('api_policy_id', sa.Integer(), nullable=True, comment='本次发布应用的API策略ID'),
-    sa.Column('linked_feature_id', sa.Integer(), nullable=True),
-    sa.Column('creator_id', sa.Integer(), nullable=False, comment='版本创建者的用户ID'),
-    sa.Column('published_by', sa.Integer(), nullable=True, comment='执行发布操作的用户ID'),
-    sa.Column('approver_id', sa.Integer(), nullable=True, comment='审核通过的用户ID'),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False, comment='版本创建时间'),
-    sa.Column('published_at', sa.DateTime(), nullable=True, comment='版本发布生效时间'),
-    sa.ForeignKeyConstraint(['api_policy_id'], ['ai_api_policies.id'], name=op.f('fk_ai_resource_instances_api_policy_id_ai_api_policies')),
-    sa.ForeignKeyConstraint(['approver_id'], ['users.id'], name=op.f('fk_ai_resource_instances_approver_id_users')),
-    sa.ForeignKeyConstraint(['creator_id'], ['users.id'], name=op.f('fk_ai_resource_instances_creator_id_users')),
-    sa.ForeignKeyConstraint(['linked_feature_id'], ['features.id'], name=op.f('fk_ai_resource_instances_linked_feature_id_features')),
-    sa.ForeignKeyConstraint(['parent_version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resource_instances_parent_version_id_ai_resource_instances'), ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['published_by'], ['users.id'], name=op.f('fk_ai_resource_instances_published_by_users')),
-    sa.ForeignKeyConstraint(['resource_id'], ['ai_resources.id'], name=op.f('fk_ai_resource_instances_resource_id_ai_resources'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_resource_instances')),
-    sa.UniqueConstraint('resource_id', 'version_tag', name='uq_resource_version_tag')
+    op.create_table('ai_agent_context_summaries',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('uuid', sa.String(length=36), nullable=True),
+    sa.Column('agent_instance_id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('scope', sa.Enum('USER', 'SESSION', name='summaryscope'), nullable=False),
+    sa.Column('session_uuid', sa.String(length=36), nullable=True, comment='如果是 Session 级，必须绑定 Session UUID'),
+    sa.Column('trace_id', sa.String(length=36), nullable=False, comment='该摘要对应的原始对话轮次Trace ID'),
+    sa.Column('module_version_id', sa.Integer(), nullable=True),
+    sa.Column('content', sa.Text(), nullable=False, comment='LLM生成的摘要内容'),
+    sa.Column('is_archived', sa.Boolean(), nullable=True, comment='是否已归档（不再被检索到，但保留记录）'),
+    sa.Column('ref_created_at', sa.DateTime(), nullable=True, comment='原始对话轮次的发生时间'),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['agent_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_agent_context_summaries_agent_instance_id_ai_resource_instances'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['module_version_id'], ['service_module_versions.id'], name=op.f('fk_ai_agent_context_summaries_module_version_id_service_module_versions'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_ai_agent_context_summaries_user_id_users'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_agent_context_summaries'))
     )
-    op.create_index(op.f('ix_ai_resource_instances_linked_feature_id'), 'ai_resource_instances', ['linked_feature_id'], unique=False)
-    op.create_index(op.f('ix_ai_resource_instances_parent_version_id'), 'ai_resource_instances', ['parent_version_id'], unique=False)
-    op.create_index(op.f('ix_ai_resource_instances_resource_id'), 'ai_resource_instances', ['resource_id'], unique=False)
-    op.create_index(op.f('ix_ai_resource_instances_status'), 'ai_resource_instances', ['status'], unique=False)
-    op.create_index(op.f('ix_ai_resource_instances_uuid'), 'ai_resource_instances', ['uuid'], unique=True)
-    op.create_index(op.f('ix_ai_resource_instances_version_tag'), 'ai_resource_instances', ['version_tag'], unique=False)
-    op.create_index('ix_resource_workspace_status', 'ai_resource_instances', ['resource_id'], unique=True, postgresql_where=sa.text("status = 'WORKSPACE'"))
+    op.create_index(op.f('ix_ai_agent_context_summaries_agent_instance_id'), 'ai_agent_context_summaries', ['agent_instance_id'], unique=False)
+    op.create_index(op.f('ix_ai_agent_context_summaries_is_archived'), 'ai_agent_context_summaries', ['is_archived'], unique=False)
+    op.create_index(op.f('ix_ai_agent_context_summaries_ref_created_at'), 'ai_agent_context_summaries', ['ref_created_at'], unique=False)
+    op.create_index(op.f('ix_ai_agent_context_summaries_scope'), 'ai_agent_context_summaries', ['scope'], unique=False)
+    op.create_index(op.f('ix_ai_agent_context_summaries_session_uuid'), 'ai_agent_context_summaries', ['session_uuid'], unique=False)
+    op.create_index(op.f('ix_ai_agent_context_summaries_trace_id'), 'ai_agent_context_summaries', ['trace_id'], unique=False)
+    op.create_index(op.f('ix_ai_agent_context_summaries_user_id'), 'ai_agent_context_summaries', ['user_id'], unique=False)
+    op.create_index(op.f('ix_ai_agent_context_summaries_uuid'), 'ai_agent_context_summaries', ['uuid'], unique=True)
+    op.create_table('ai_agents',
+    sa.Column('version_id', sa.Integer(), nullable=False),
+    sa.Column('agent_config', sa.JSON(), nullable=False, comment='AgentConfig (temperature, top_p, etc.)'),
+    sa.Column('system_prompt', sa.Text(), nullable=True, comment='System level instruction'),
+    sa.Column('llm_module_version_id', sa.Integer(), nullable=False),
+    sa.ForeignKeyConstraint(['llm_module_version_id'], ['service_module_versions.id'], name=op.f('fk_ai_agents_llm_module_version_id_service_module_versions')),
+    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_agents_version_id_ai_resource_instances'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_agents'))
+    )
+    op.create_table('ai_chat_sessions',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('uuid', sa.String(length=36), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('agent_instance_id', sa.Integer(), nullable=False),
+    sa.Column('title', sa.String(length=255), nullable=True, comment='会话标题 (自动生成或用户设定)'),
+    sa.Column('summary', sa.Text(), nullable=True, comment='会话摘要'),
+    sa.Column('message_count', sa.Integer(), nullable=False, comment='正常消息数量'),
+    sa.Column('is_archived', sa.Boolean(), nullable=True, comment='会话是否已归档(软删除)'),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.ForeignKeyConstraint(['agent_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_chat_sessions_agent_instance_id_ai_resource_instances')),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_ai_chat_sessions_user_id_users'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_chat_sessions'))
+    )
+    op.create_index(op.f('ix_ai_chat_sessions_agent_instance_id'), 'ai_chat_sessions', ['agent_instance_id'], unique=False)
+    op.create_index(op.f('ix_ai_chat_sessions_is_archived'), 'ai_chat_sessions', ['is_archived'], unique=False)
+    op.create_index(op.f('ix_ai_chat_sessions_user_id'), 'ai_chat_sessions', ['user_id'], unique=False)
+    op.create_index(op.f('ix_ai_chat_sessions_uuid'), 'ai_chat_sessions', ['uuid'], unique=True)
+    op.create_table('ai_knowledge_bases',
+    sa.Column('version_id', sa.Integer(), nullable=False),
+    sa.Column('collection_name', sa.String(length=255), nullable=False, comment='The unique collection name in the physical vector store'),
+    sa.Column('engine_alias', sa.String(length=50), nullable=False, comment="The alias of the physical vector engine to use (e.g., 'default', 'high_perf')"),
+    sa.Column('embedding_module_version_id', sa.Integer(), nullable=False),
+    sa.Column('config', sa.JSON(), nullable=True, comment='The declarative configuration for the data processing pipeline.'),
+    sa.ForeignKeyConstraint(['embedding_module_version_id'], ['service_module_versions.id'], name=op.f('fk_ai_knowledge_bases_embedding_module_version_id_service_module_versions')),
+    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_knowledge_bases_version_id_ai_resource_instances'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_knowledge_bases'))
+    )
+    op.create_index(op.f('ix_ai_knowledge_bases_collection_name'), 'ai_knowledge_bases', ['collection_name'], unique=False)
+    op.create_index(op.f('ix_ai_knowledge_bases_engine_alias'), 'ai_knowledge_bases', ['engine_alias'], unique=False)
+    op.create_table('ai_resource_refs',
+    sa.Column('id', sa.Integer(), nullable=False, comment='引用关系唯一主键ID'),
+    sa.Column('source_resource_id', sa.Integer(), nullable=False, comment='发起引用的源逻辑资源ID'),
+    sa.Column('source_instance_id', sa.Integer(), nullable=False, comment='发起引用的源资源具体版本ID'),
+    sa.Column('source_node_uuid', sa.String(length=64), nullable=False, comment='源资源内部的局部节点/组件标识符'),
+    sa.Column('target_resource_id', sa.Integer(), nullable=False, comment='被引用的目标逻辑资源ID'),
+    sa.Column('target_instance_id', sa.Integer(), nullable=False, comment='被引用的目标资源具体版本ID (版本锁定)'),
+    sa.Column('alias', sa.String(length=255), nullable=True, comment="别名，用于代码中引用 (e.g. 'weather_tool')"),
+    sa.Column('options', sa.JSON(), nullable=True, comment='引用携带的配置'),
+    sa.ForeignKeyConstraint(['source_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resource_refs_source_instance_id_ai_resource_instances'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['source_resource_id'], ['ai_resources.id'], name=op.f('fk_ai_resource_refs_source_resource_id_ai_resources'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['target_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resource_refs_target_instance_id_ai_resource_instances'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['target_resource_id'], ['ai_resources.id'], name=op.f('fk_ai_resource_refs_target_resource_id_ai_resources'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_resource_refs')),
+    sa.UniqueConstraint('source_instance_id', 'source_node_uuid', 'target_instance_id', name='uq_ref_edge')
+    )
+    op.create_index(op.f('ix_ai_resource_refs_source_instance_id'), 'ai_resource_refs', ['source_instance_id'], unique=False)
+    op.create_index(op.f('ix_ai_resource_refs_source_node_uuid'), 'ai_resource_refs', ['source_node_uuid'], unique=False)
+    op.create_index(op.f('ix_ai_resource_refs_source_resource_id'), 'ai_resource_refs', ['source_resource_id'], unique=False)
+    op.create_index(op.f('ix_ai_resource_refs_target_instance_id'), 'ai_resource_refs', ['target_instance_id'], unique=False)
+    op.create_index(op.f('ix_ai_resource_refs_target_resource_id'), 'ai_resource_refs', ['target_resource_id'], unique=False)
+    op.create_table('ai_tenant_dbs',
+    sa.Column('version_id', sa.Integer(), nullable=False),
+    sa.Column('schema_name', sa.String(length=63), nullable=False, comment='在租户数据平面DB中对应的Schema名称'),
+    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_tenant_dbs_version_id_ai_resource_instances'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_tenant_dbs'))
+    )
+    op.create_index(op.f('ix_ai_tenant_dbs_schema_name'), 'ai_tenant_dbs', ['schema_name'], unique=False)
+    op.create_table('ai_tools',
+    sa.Column('version_id', sa.Integer(), nullable=False),
+    sa.Column('url', sa.String(length=2048), nullable=True, comment='工具的API端点URL'),
+    sa.Column('method', sa.String(length=10), nullable=False, comment='HTTP请求方法 (GET, POST, etc.)'),
+    sa.Column('inputs_schema', sa.JSON(), nullable=False, comment='输入参数的JSON Schema'),
+    sa.Column('outputs_schema', sa.JSON(), nullable=False, comment='输出结果的JSON Schema'),
+    sa.Column('llm_function_schema', sa.JSON(), nullable=True, comment='提供给大语言模型的Function Calling Schema'),
+    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_tools_version_id_ai_resource_instances'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_tools'))
+    )
+    op.create_table('ai_uiapps',
+    sa.Column('version_id', sa.Integer(), nullable=False),
+    sa.Column('global_config', sa.JSON(), nullable=False, comment='全局配置'),
+    sa.Column('navigation', sa.JSON(), nullable=True, comment='导航菜单定义'),
+    sa.Column('home_page_uuid', sa.String(length=64), nullable=True, comment='默认首页的Page UUID'),
+    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_uiapps_version_id_ai_resource_instances'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_uiapps'))
+    )
+    op.create_table('ai_workflows',
+    sa.Column('version_id', sa.Integer(), nullable=False),
+    sa.Column('graph', sa.JSON(), nullable=False, comment='工作流的DSL图结构'),
+    sa.Column('inputs_schema', sa.JSON(), nullable=False, comment='工作流输入参数定义 (List[ParameterSchema])'),
+    sa.Column('outputs_schema', sa.JSON(), nullable=False, comment='工作流输出结构定义 (List[ParameterSchema])'),
+    sa.Column('is_stream', sa.Boolean(), nullable=False, comment='是否支持流式输出'),
+    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_workflows_version_id_ai_resource_instances'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_workflows'))
+    )
     op.create_table('membership_history',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
@@ -625,150 +823,6 @@ def upgrade() -> None:
     sa.UniqueConstraint('team_id', 'user_id', name='uq_team_user')
     )
     op.create_index(op.f('ix_team_members_uuid'), 'team_members', ['uuid'], unique=True)
-    op.create_table('ai_agent_context_summaries',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('uuid', sa.String(length=36), nullable=True),
-    sa.Column('agent_instance_id', sa.Integer(), nullable=False),
-    sa.Column('user_id', sa.Integer(), nullable=False),
-    sa.Column('scope', sa.Enum('USER', 'SESSION', name='summaryscope'), nullable=False),
-    sa.Column('session_uuid', sa.String(length=36), nullable=True, comment='如果是 Session 级，必须绑定 Session UUID'),
-    sa.Column('trace_id', sa.String(length=36), nullable=False, comment='该摘要对应的原始对话轮次Trace ID'),
-    sa.Column('module_version_id', sa.Integer(), nullable=True),
-    sa.Column('content', sa.Text(), nullable=False, comment='LLM生成的摘要内容'),
-    sa.Column('is_archived', sa.Boolean(), nullable=True, comment='是否已归档（不再被检索到，但保留记录）'),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
-    sa.ForeignKeyConstraint(['agent_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_agent_context_summaries_agent_instance_id_ai_resource_instances'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['module_version_id'], ['service_module_versions.id'], name=op.f('fk_ai_agent_context_summaries_module_version_id_service_module_versions'), ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_ai_agent_context_summaries_user_id_users'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_agent_context_summaries'))
-    )
-    op.create_index(op.f('ix_ai_agent_context_summaries_agent_instance_id'), 'ai_agent_context_summaries', ['agent_instance_id'], unique=False)
-    op.create_index(op.f('ix_ai_agent_context_summaries_is_archived'), 'ai_agent_context_summaries', ['is_archived'], unique=False)
-    op.create_index(op.f('ix_ai_agent_context_summaries_scope'), 'ai_agent_context_summaries', ['scope'], unique=False)
-    op.create_index(op.f('ix_ai_agent_context_summaries_session_uuid'), 'ai_agent_context_summaries', ['session_uuid'], unique=False)
-    op.create_index(op.f('ix_ai_agent_context_summaries_trace_id'), 'ai_agent_context_summaries', ['trace_id'], unique=False)
-    op.create_index(op.f('ix_ai_agent_context_summaries_user_id'), 'ai_agent_context_summaries', ['user_id'], unique=False)
-    op.create_index(op.f('ix_ai_agent_context_summaries_uuid'), 'ai_agent_context_summaries', ['uuid'], unique=True)
-    op.create_table('ai_agents',
-    sa.Column('version_id', sa.Integer(), nullable=False),
-    sa.Column('agent_config', sa.JSON(), nullable=False, comment='AgentConfig (temperature, top_p, etc.)'),
-    sa.Column('system_prompt', sa.Text(), nullable=True, comment='System level instruction'),
-    sa.Column('llm_module_version_id', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['llm_module_version_id'], ['service_module_versions.id'], name=op.f('fk_ai_agents_llm_module_version_id_service_module_versions')),
-    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_agents_version_id_ai_resource_instances'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_agents'))
-    )
-    op.create_table('ai_chat_sessions',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('uuid', sa.String(length=36), nullable=False),
-    sa.Column('user_id', sa.Integer(), nullable=False),
-    sa.Column('agent_instance_id', sa.Integer(), nullable=False),
-    sa.Column('title', sa.String(length=255), nullable=True, comment='会话标题 (自动生成或用户设定)'),
-    sa.Column('summary', sa.Text(), nullable=True, comment='会话摘要'),
-    sa.Column('is_archived', sa.Boolean(), nullable=True, comment='会话是否已归档(软删除)'),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['agent_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_chat_sessions_agent_instance_id_ai_resource_instances')),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_ai_chat_sessions_user_id_users'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_chat_sessions'))
-    )
-    op.create_index(op.f('ix_ai_chat_sessions_agent_instance_id'), 'ai_chat_sessions', ['agent_instance_id'], unique=False)
-    op.create_index(op.f('ix_ai_chat_sessions_is_archived'), 'ai_chat_sessions', ['is_archived'], unique=False)
-    op.create_index(op.f('ix_ai_chat_sessions_user_id'), 'ai_chat_sessions', ['user_id'], unique=False)
-    op.create_index(op.f('ix_ai_chat_sessions_uuid'), 'ai_chat_sessions', ['uuid'], unique=True)
-    op.create_table('ai_knowledge_bases',
-    sa.Column('version_id', sa.Integer(), nullable=False),
-    sa.Column('collection_name', sa.String(length=255), nullable=False, comment='The unique collection name in the physical vector store'),
-    sa.Column('engine_alias', sa.String(length=50), nullable=False, comment="The alias of the physical vector engine to use (e.g., 'default', 'high_perf')"),
-    sa.Column('embedding_module_version_id', sa.Integer(), nullable=False),
-    sa.Column('config', sa.JSON(), nullable=True, comment='The declarative configuration for the data processing pipeline.'),
-    sa.ForeignKeyConstraint(['embedding_module_version_id'], ['service_module_versions.id'], name=op.f('fk_ai_knowledge_bases_embedding_module_version_id_service_module_versions')),
-    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_knowledge_bases_version_id_ai_resource_instances'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_knowledge_bases'))
-    )
-    op.create_index(op.f('ix_ai_knowledge_bases_collection_name'), 'ai_knowledge_bases', ['collection_name'], unique=False)
-    op.create_index(op.f('ix_ai_knowledge_bases_engine_alias'), 'ai_knowledge_bases', ['engine_alias'], unique=False)
-    op.create_table('ai_resource_refs',
-    sa.Column('id', sa.Integer(), nullable=False, comment='引用关系唯一主键ID'),
-    sa.Column('source_resource_id', sa.Integer(), nullable=False, comment='发起引用的源逻辑资源ID'),
-    sa.Column('source_instance_id', sa.Integer(), nullable=False, comment='发起引用的源资源具体版本ID'),
-    sa.Column('source_node_uuid', sa.String(length=64), nullable=False, comment='源资源内部的局部节点/组件标识符'),
-    sa.Column('target_resource_id', sa.Integer(), nullable=False, comment='被引用的目标逻辑资源ID'),
-    sa.Column('target_instance_id', sa.Integer(), nullable=False, comment='被引用的目标资源具体版本ID (版本锁定)'),
-    sa.Column('alias', sa.String(length=255), nullable=True, comment="别名，用于代码中引用 (e.g. 'weather_tool')"),
-    sa.Column('options', sa.JSON(), nullable=True, comment='引用携带的配置'),
-    sa.ForeignKeyConstraint(['source_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resource_refs_source_instance_id_ai_resource_instances'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['source_resource_id'], ['ai_resources.id'], name=op.f('fk_ai_resource_refs_source_resource_id_ai_resources'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['target_instance_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_resource_refs_target_instance_id_ai_resource_instances'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['target_resource_id'], ['ai_resources.id'], name=op.f('fk_ai_resource_refs_target_resource_id_ai_resources'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_resource_refs')),
-    sa.UniqueConstraint('source_instance_id', 'source_node_uuid', 'target_instance_id', name='uq_ref_edge')
-    )
-    op.create_index(op.f('ix_ai_resource_refs_source_instance_id'), 'ai_resource_refs', ['source_instance_id'], unique=False)
-    op.create_index(op.f('ix_ai_resource_refs_source_node_uuid'), 'ai_resource_refs', ['source_node_uuid'], unique=False)
-    op.create_index(op.f('ix_ai_resource_refs_source_resource_id'), 'ai_resource_refs', ['source_resource_id'], unique=False)
-    op.create_index(op.f('ix_ai_resource_refs_target_instance_id'), 'ai_resource_refs', ['target_instance_id'], unique=False)
-    op.create_index(op.f('ix_ai_resource_refs_target_resource_id'), 'ai_resource_refs', ['target_resource_id'], unique=False)
-    op.create_table('ai_tenant_dbs',
-    sa.Column('version_id', sa.Integer(), nullable=False),
-    sa.Column('schema_name', sa.String(length=63), nullable=False, comment='在租户数据平面DB中对应的Schema名称'),
-    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_tenant_dbs_version_id_ai_resource_instances'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_tenant_dbs'))
-    )
-    op.create_index(op.f('ix_ai_tenant_dbs_schema_name'), 'ai_tenant_dbs', ['schema_name'], unique=False)
-    op.create_table('ai_tools',
-    sa.Column('version_id', sa.Integer(), nullable=False),
-    sa.Column('url', sa.String(length=2048), nullable=True, comment='工具的API端点URL'),
-    sa.Column('method', sa.String(length=10), nullable=False, comment='HTTP请求方法 (GET, POST, etc.)'),
-    sa.Column('inputs_schema', sa.JSON(), nullable=False, comment='输入参数的JSON Schema'),
-    sa.Column('outputs_schema', sa.JSON(), nullable=False, comment='输出结果的JSON Schema'),
-    sa.Column('llm_function_schema', sa.JSON(), nullable=True, comment='提供给大语言模型的Function Calling Schema'),
-    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_tools_version_id_ai_resource_instances'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_tools'))
-    )
-    op.create_table('ai_workflows',
-    sa.Column('version_id', sa.Integer(), nullable=False),
-    sa.Column('graph', sa.JSON(), nullable=False, comment='工作流的DSL图结构'),
-    sa.Column('inputs_schema', sa.JSON(), nullable=False, comment='工作流输入参数定义 (List[ParameterSchema])'),
-    sa.Column('outputs_schema', sa.JSON(), nullable=False, comment='工作流输出结构定义 (List[ParameterSchema])'),
-    sa.Column('is_stream', sa.Boolean(), nullable=False, comment='是否支持流式输出'),
-    sa.ForeignKeyConstraint(['version_id'], ['ai_resource_instances.id'], name=op.f('fk_ai_workflows_version_id_ai_resource_instances'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('version_id', name=op.f('pk_ai_workflows'))
-    )
-    op.create_table('entitlement_balances',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('owner_user_id', sa.Integer(), nullable=True),
-    sa.Column('owner_team_id', sa.Integer(), nullable=True),
-    sa.Column('source_entitlement_id', sa.Integer(), nullable=False),
-    sa.Column('feature_id', sa.Integer(), nullable=False),
-    sa.Column('granted_quota', sa.DECIMAL(precision=16, scale=4), nullable=False),
-    sa.Column('consumed_usage', sa.DECIMAL(precision=16, scale=4), nullable=False),
-    sa.Column('start_date', sa.DateTime(), nullable=False),
-    sa.Column('end_date', sa.DateTime(), nullable=True),
-    sa.Column('status', sa.Enum('ACTIVE', 'EXPIRED', 'CANCELLED', 'DEPLETED', name='entitlementbalancestatus'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.CheckConstraint('(owner_user_id IS NOT NULL AND owner_team_id IS NULL) OR (owner_user_id IS NULL AND owner_team_id IS NOT NULL)', name=op.f('ck_entitlement_balances_ck_entitlement_owner_exclusive')),
-    sa.ForeignKeyConstraint(['feature_id'], ['features.id'], name=op.f('fk_entitlement_balances_feature_id_features')),
-    sa.ForeignKeyConstraint(['owner_team_id'], ['teams.id'], name=op.f('fk_entitlement_balances_owner_team_id_teams'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['owner_user_id'], ['users.id'], name=op.f('fk_entitlement_balances_owner_user_id_users'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['source_entitlement_id'], ['product_entitlements.id'], name=op.f('fk_entitlement_balances_source_entitlement_id_product_entitlements')),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_entitlement_balances'))
-    )
-    op.create_index(op.f('ix_entitlement_balances_feature_id'), 'entitlement_balances', ['feature_id'], unique=False)
-    op.create_index(op.f('ix_entitlement_balances_owner_team_id'), 'entitlement_balances', ['owner_team_id'], unique=False)
-    op.create_index(op.f('ix_entitlement_balances_owner_user_id'), 'entitlement_balances', ['owner_user_id'], unique=False)
-    op.create_index(op.f('ix_entitlement_balances_status'), 'entitlement_balances', ['status'], unique=False)
-    op.create_table('price_tiers',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('price_id', sa.Integer(), nullable=False),
-    sa.Column('feature_id', sa.Integer(), nullable=False),
-    sa.Column('amount', sa.DECIMAL(precision=18, scale=8), nullable=False, comment='价格'),
-    sa.Column('up_to', sa.Integer(), nullable=True, comment='阶梯定价的上限 (e.g., 1000000), NULL表示无限'),
-    sa.ForeignKeyConstraint(['feature_id'], ['features.id'], name=op.f('fk_price_tiers_feature_id_features'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['price_id'], ['prices.id'], name=op.f('fk_price_tiers_price_id_prices'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_price_tiers'))
-    )
     op.create_table('traces',
     sa.Column('id', sa.Integer(), nullable=False, comment='物理自增主键，用于聚集索引和分页'),
     sa.Column('span_uuid', sa.String(length=36), nullable=False, comment='Span的逻辑唯一ID (UUID)'),
@@ -857,6 +911,22 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_ai_tenant_tables_tenantdb_id'), 'ai_tenant_tables', ['tenantdb_id'], unique=False)
     op.create_index(op.f('ix_ai_tenant_tables_uuid'), 'ai_tenant_tables', ['uuid'], unique=True)
+    op.create_table('ai_uiapp_pages',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('app_version_id', sa.Integer(), nullable=False),
+    sa.Column('page_uuid', sa.String(length=64), nullable=False),
+    sa.Column('path', sa.String(length=255), nullable=False, comment='路由路径, e.g. /dashboard'),
+    sa.Column('label', sa.String(length=255), nullable=False, comment='页面标题'),
+    sa.Column('icon', sa.String(length=100), nullable=True),
+    sa.Column('display_order', sa.Integer(), nullable=True),
+    sa.Column('data', sa.JSON(), nullable=False, comment='组件树 DSL'),
+    sa.Column('config', sa.JSON(), nullable=True),
+    sa.ForeignKeyConstraint(['app_version_id'], ['ai_uiapps.version_id'], name=op.f('fk_ai_uiapp_pages_app_version_id_ai_uiapps'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_ai_uiapp_pages')),
+    sa.UniqueConstraint('app_version_id', 'page_uuid', name='uq_uiapp_version_page'),
+    sa.UniqueConstraint('app_version_id', 'path', name='uq_uiapp_version_path')
+    )
+    op.create_index(op.f('ix_ai_uiapp_pages_app_version_id'), 'ai_uiapp_pages', ['app_version_id'], unique=False)
     op.create_table('consumption_records',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('billing_account_id', sa.Integer(), nullable=False),
@@ -881,12 +951,45 @@ def upgrade() -> None:
     op.create_index(op.f('ix_consumption_records_status'), 'consumption_records', ['status'], unique=False)
     op.create_index(op.f('ix_consumption_records_trace_span_id'), 'consumption_records', ['trace_span_id'], unique=True)
     op.create_index(op.f('ix_consumption_records_user_id'), 'consumption_records', ['user_id'], unique=False)
+    op.create_table('entitlement_balances',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('owner_user_id', sa.Integer(), nullable=True),
+    sa.Column('owner_team_id', sa.Integer(), nullable=True),
+    sa.Column('source_entitlement_id', sa.Integer(), nullable=False),
+    sa.Column('feature_id', sa.Integer(), nullable=False),
+    sa.Column('granted_quota', sa.DECIMAL(precision=16, scale=4), nullable=False),
+    sa.Column('consumed_usage', sa.DECIMAL(precision=16, scale=4), nullable=False),
+    sa.Column('start_date', sa.DateTime(), nullable=False),
+    sa.Column('end_date', sa.DateTime(), nullable=True),
+    sa.Column('status', sa.Enum('ACTIVE', 'EXPIRED', 'CANCELLED', 'DEPLETED', name='entitlementbalancestatus'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.CheckConstraint('(owner_user_id IS NOT NULL AND owner_team_id IS NULL) OR (owner_user_id IS NULL AND owner_team_id IS NOT NULL)', name=op.f('ck_entitlement_balances_ck_entitlement_owner_exclusive')),
+    sa.ForeignKeyConstraint(['feature_id'], ['features.id'], name=op.f('fk_entitlement_balances_feature_id_features')),
+    sa.ForeignKeyConstraint(['owner_team_id'], ['teams.id'], name=op.f('fk_entitlement_balances_owner_team_id_teams'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['owner_user_id'], ['users.id'], name=op.f('fk_entitlement_balances_owner_user_id_users'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['source_entitlement_id'], ['product_entitlements.id'], name=op.f('fk_entitlement_balances_source_entitlement_id_product_entitlements')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_entitlement_balances'))
+    )
+    op.create_index(op.f('ix_entitlement_balances_feature_id'), 'entitlement_balances', ['feature_id'], unique=False)
+    op.create_index(op.f('ix_entitlement_balances_owner_team_id'), 'entitlement_balances', ['owner_team_id'], unique=False)
+    op.create_index(op.f('ix_entitlement_balances_owner_user_id'), 'entitlement_balances', ['owner_user_id'], unique=False)
+    op.create_index(op.f('ix_entitlement_balances_status'), 'entitlement_balances', ['status'], unique=False)
     op.create_table('knowledge_base_version_documents',
     sa.Column('version_id', sa.Integer(), nullable=False),
     sa.Column('document_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['document_id'], ['ai_knowledge_documents.id'], name=op.f('fk_knowledge_base_version_documents_document_id_ai_knowledge_documents'), ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['version_id'], ['ai_knowledge_bases.version_id'], name=op.f('fk_knowledge_base_version_documents_version_id_ai_knowledge_bases'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('version_id', 'document_id', name=op.f('pk_knowledge_base_version_documents'))
+    )
+    op.create_table('price_tiers',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('price_id', sa.Integer(), nullable=False),
+    sa.Column('feature_id', sa.Integer(), nullable=False),
+    sa.Column('amount', sa.DECIMAL(precision=18, scale=8), nullable=False, comment='价格'),
+    sa.Column('up_to', sa.Integer(), nullable=True, comment='阶梯定价的上限 (e.g., 1000000), NULL表示无限'),
+    sa.ForeignKeyConstraint(['feature_id'], ['features.id'], name=op.f('fk_price_tiers_feature_id_features'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['price_id'], ['prices.id'], name=op.f('fk_price_tiers_price_id_prices'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_price_tiers'))
     )
     op.create_table('ai_agent_memory_values',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -965,13 +1068,21 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_ai_agent_memory_values_session_uuid'), table_name='ai_agent_memory_values')
     op.drop_index(op.f('ix_ai_agent_memory_values_memory_id'), table_name='ai_agent_memory_values')
     op.drop_table('ai_agent_memory_values')
+    op.drop_table('price_tiers')
     op.drop_table('knowledge_base_version_documents')
+    op.drop_index(op.f('ix_entitlement_balances_status'), table_name='entitlement_balances')
+    op.drop_index(op.f('ix_entitlement_balances_owner_user_id'), table_name='entitlement_balances')
+    op.drop_index(op.f('ix_entitlement_balances_owner_team_id'), table_name='entitlement_balances')
+    op.drop_index(op.f('ix_entitlement_balances_feature_id'), table_name='entitlement_balances')
+    op.drop_table('entitlement_balances')
     op.drop_index(op.f('ix_consumption_records_user_id'), table_name='consumption_records')
     op.drop_index(op.f('ix_consumption_records_trace_span_id'), table_name='consumption_records')
     op.drop_index(op.f('ix_consumption_records_status'), table_name='consumption_records')
     op.drop_index(op.f('ix_consumption_records_feature_id'), table_name='consumption_records')
     op.drop_index(op.f('ix_consumption_records_billing_account_id'), table_name='consumption_records')
     op.drop_table('consumption_records')
+    op.drop_index(op.f('ix_ai_uiapp_pages_app_version_id'), table_name='ai_uiapp_pages')
+    op.drop_table('ai_uiapp_pages')
     op.drop_index(op.f('ix_ai_tenant_tables_uuid'), table_name='ai_tenant_tables')
     op.drop_index(op.f('ix_ai_tenant_tables_tenantdb_id'), table_name='ai_tenant_tables')
     op.drop_table('ai_tenant_tables')
@@ -996,13 +1107,20 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_traces_context_id'), table_name='traces')
     op.drop_index(op.f('ix_traces_api_key_id'), table_name='traces')
     op.drop_table('traces')
-    op.drop_table('price_tiers')
-    op.drop_index(op.f('ix_entitlement_balances_status'), table_name='entitlement_balances')
-    op.drop_index(op.f('ix_entitlement_balances_owner_user_id'), table_name='entitlement_balances')
-    op.drop_index(op.f('ix_entitlement_balances_owner_team_id'), table_name='entitlement_balances')
-    op.drop_index(op.f('ix_entitlement_balances_feature_id'), table_name='entitlement_balances')
-    op.drop_table('entitlement_balances')
+    op.drop_index(op.f('ix_team_members_uuid'), table_name='team_members')
+    op.drop_table('team_members')
+    op.drop_index(op.f('ix_product_entitlements_product_id'), table_name='product_entitlements')
+    op.drop_index(op.f('ix_product_entitlements_feature_id'), table_name='product_entitlements')
+    op.drop_table('product_entitlements')
+    op.drop_table('prices')
+    op.drop_index(op.f('ix_memberships_uuid'), table_name='memberships')
+    op.drop_index(op.f('ix_memberships_user_id'), table_name='memberships')
+    op.drop_index(op.f('ix_memberships_status'), table_name='memberships')
+    op.drop_table('memberships')
+    op.drop_index(op.f('ix_membership_history_user_id'), table_name='membership_history')
+    op.drop_table('membership_history')
     op.drop_table('ai_workflows')
+    op.drop_table('ai_uiapps')
     op.drop_table('ai_tools')
     op.drop_index(op.f('ix_ai_tenant_dbs_schema_name'), table_name='ai_tenant_dbs')
     op.drop_table('ai_tenant_dbs')
@@ -1026,21 +1144,25 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_ai_agent_context_summaries_trace_id'), table_name='ai_agent_context_summaries')
     op.drop_index(op.f('ix_ai_agent_context_summaries_session_uuid'), table_name='ai_agent_context_summaries')
     op.drop_index(op.f('ix_ai_agent_context_summaries_scope'), table_name='ai_agent_context_summaries')
+    op.drop_index(op.f('ix_ai_agent_context_summaries_ref_created_at'), table_name='ai_agent_context_summaries')
     op.drop_index(op.f('ix_ai_agent_context_summaries_is_archived'), table_name='ai_agent_context_summaries')
     op.drop_index(op.f('ix_ai_agent_context_summaries_agent_instance_id'), table_name='ai_agent_context_summaries')
     op.drop_table('ai_agent_context_summaries')
-    op.drop_index(op.f('ix_team_members_uuid'), table_name='team_members')
-    op.drop_table('team_members')
-    op.drop_index(op.f('ix_product_entitlements_product_id'), table_name='product_entitlements')
-    op.drop_index(op.f('ix_product_entitlements_feature_id'), table_name='product_entitlements')
-    op.drop_table('product_entitlements')
-    op.drop_table('prices')
-    op.drop_index(op.f('ix_memberships_uuid'), table_name='memberships')
-    op.drop_index(op.f('ix_memberships_user_id'), table_name='memberships')
-    op.drop_index(op.f('ix_memberships_status'), table_name='memberships')
-    op.drop_table('memberships')
-    op.drop_index(op.f('ix_membership_history_user_id'), table_name='membership_history')
-    op.drop_table('membership_history')
+    op.drop_table('role_permissions')
+    op.drop_table('products')
+    op.drop_index(op.f('ix_invitations_uuid'), table_name='invitations')
+    op.drop_index(op.f('ix_invitations_token'), table_name='invitations')
+    op.drop_index(op.f('ix_invitations_target_identifier'), table_name='invitations')
+    op.drop_index(op.f('ix_invitations_target_entity_id'), table_name='invitations')
+    op.drop_table('invitations')
+    op.drop_index(op.f('ix_assets_workspace_id'), table_name='assets')
+    op.drop_index(op.f('ix_assets_uuid'), table_name='assets')
+    op.drop_index(op.f('ix_assets_type'), table_name='assets')
+    op.drop_index(op.f('ix_assets_status'), table_name='assets')
+    op.drop_index(op.f('ix_assets_is_deleted'), table_name='assets')
+    op.drop_index(op.f('ix_assets_folder_id'), table_name='assets')
+    op.drop_index(op.f('ix_assets_content_hash'), table_name='assets')
+    op.drop_table('assets')
     op.drop_index('ix_resource_workspace_status', table_name='ai_resource_instances', postgresql_where=sa.text("status = 'WORKSPACE'"))
     op.drop_index(op.f('ix_ai_resource_instances_version_tag'), table_name='ai_resource_instances')
     op.drop_index(op.f('ix_ai_resource_instances_uuid'), table_name='ai_resource_instances')
@@ -1049,19 +1171,9 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_ai_resource_instances_parent_version_id'), table_name='ai_resource_instances')
     op.drop_index(op.f('ix_ai_resource_instances_linked_feature_id'), table_name='ai_resource_instances')
     op.drop_table('ai_resource_instances')
-    op.drop_table('role_permissions')
-    op.drop_table('products')
-    op.drop_index(op.f('ix_invitations_uuid'), table_name='invitations')
-    op.drop_index(op.f('ix_invitations_token'), table_name='invitations')
-    op.drop_index(op.f('ix_invitations_target_identifier'), table_name='invitations')
-    op.drop_index(op.f('ix_invitations_target_entity_id'), table_name='invitations')
-    op.drop_table('invitations')
-    op.drop_index(op.f('ix_ai_resources_uuid'), table_name='ai_resources')
-    op.drop_index(op.f('ix_ai_resources_resource_type_id'), table_name='ai_resources')
-    op.drop_index(op.f('ix_ai_resources_project_id'), table_name='ai_resources')
-    op.drop_index(op.f('ix_ai_resources_heat_value'), table_name='ai_resources')
-    op.drop_index(op.f('ix_ai_resources_category_id'), table_name='ai_resources')
-    op.drop_table('ai_resources')
+    op.drop_index(op.f('ix_ai_project_resource_refs_resource_id'), table_name='ai_project_resource_refs')
+    op.drop_index(op.f('ix_ai_project_resource_refs_project_id'), table_name='ai_project_resource_refs')
+    op.drop_table('ai_project_resource_refs')
     op.drop_index(op.f('ix_activity_logs_timestamp'), table_name='activity_logs')
     op.drop_index(op.f('ix_activity_logs_parent_id'), table_name='activity_logs')
     op.drop_index(op.f('ix_activity_logs_actor_user_id'), table_name='activity_logs')
@@ -1075,6 +1187,17 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_roles_uuid'), table_name='roles')
     op.drop_index(op.f('ix_roles_parent_id'), table_name='roles')
     op.drop_table('roles')
+    op.drop_index(op.f('ix_assets_folders_workspace_id'), table_name='assets_folders')
+    op.drop_index(op.f('ix_assets_folders_uuid'), table_name='assets_folders')
+    op.drop_index(op.f('ix_assets_folders_parent_id'), table_name='assets_folders')
+    op.drop_index(op.f('ix_assets_folders_is_deleted'), table_name='assets_folders')
+    op.drop_table('assets_folders')
+    op.drop_index(op.f('ix_ai_resources_workspace_id'), table_name='ai_resources')
+    op.drop_index(op.f('ix_ai_resources_uuid'), table_name='ai_resources')
+    op.drop_index(op.f('ix_ai_resources_resource_type_id'), table_name='ai_resources')
+    op.drop_index(op.f('ix_ai_resources_heat_value'), table_name='ai_resources')
+    op.drop_index(op.f('ix_ai_resources_category_id'), table_name='ai_resources')
+    op.drop_table('ai_resources')
     op.drop_index(op.f('ix_ai_projects_workspace_id'), table_name='ai_projects')
     op.drop_index(op.f('ix_ai_projects_uuid'), table_name='ai_projects')
     op.drop_table('ai_projects')
@@ -1118,6 +1241,8 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_billing_accounts_uuid'), table_name='billing_accounts')
     op.drop_index(op.f('ix_billing_accounts_status'), table_name='billing_accounts')
     op.drop_table('billing_accounts')
+    op.drop_index(op.f('ix_assets_intelligence_is_vector_indexed'), table_name='assets_intelligence')
+    op.drop_table('assets_intelligence')
     op.drop_index(op.f('ix_ai_workflow_node_defs_registry_id'), table_name='ai_workflow_node_defs')
     op.drop_index(op.f('ix_ai_workflow_node_defs_category'), table_name='ai_workflow_node_defs')
     op.drop_table('ai_workflow_node_defs')
