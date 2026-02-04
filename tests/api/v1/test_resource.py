@@ -66,15 +66,45 @@ class TestGenericResourceLifecycle:
         expected_type = type_map.get(resource_type)
         assert isinstance(resource.workspace_instance, expected_type), f"Instance should be of type {expected_type}"
 
-    async def test_list_resources_in_project(self, client: AsyncClient, auth_headers_factory: Callable, registered_user_with_pro: UserContext, created_project_in_personal_ws: Project, created_resource: Resource):
-        """[参数化] 验证可以成功列出项目中创建的资源。"""
+    async def test_list_resources_in_workspace(self, client: AsyncClient, auth_headers_factory: Callable, registered_user_with_pro: UserContext, created_resource: Resource):
+        """[参数化] 验证可以成功列出工作空间中的资源。"""
         headers = await auth_headers_factory(registered_user_with_pro)
-        response = await client.get(f"/api/v1/projects/{created_project_in_personal_ws.uuid}/resources", headers=headers)
+        workspace_uuid = registered_user_with_pro.personal_workspace.uuid
+        response = await client.get(f"/api/v1/workspaces/{workspace_uuid}/resources", headers=headers)
         
         assert response.status_code == status.HTTP_200_OK
         data = response.json()["data"]
         assert len(data) >= 1
         assert created_resource.uuid in {r["uuid"] for r in data}
+
+    async def test_manage_project_resource_references(
+        self,
+        client: AsyncClient,
+        auth_headers_factory: Callable,
+        registered_user_with_pro: UserContext,
+        created_project_in_personal_ws: Project,
+        created_resource: Resource
+    ):
+        """验证项目可以添加、列出并删除资源引用。"""
+        headers = await auth_headers_factory(registered_user_with_pro)
+        project_uuid = created_project_in_personal_ws.uuid
+
+        payload = {"resource_uuid": created_resource.uuid, "alias": "primary_resource"}
+        response = await client.post(f"/api/v1/projects/{project_uuid}/resources", json=payload, headers=headers)
+        assert response.status_code == status.HTTP_201_CREATED, response.text
+        created_ref = response.json()["data"]
+        assert created_ref["resource_uuid"] == created_resource.uuid
+        assert created_ref["alias"] == "primary_resource"
+
+        list_response = await client.get(f"/api/v1/projects/{project_uuid}/resources", headers=headers)
+        assert list_response.status_code == status.HTTP_200_OK, list_response.text
+        refs = list_response.json()["data"]
+        assert created_resource.uuid in {ref["resource_uuid"] for ref in refs}
+
+        delete_response = await client.delete(
+            f"/api/v1/projects/{project_uuid}/resources/{created_resource.uuid}", headers=headers
+        )
+        assert delete_response.status_code == status.HTTP_200_OK, delete_response.text
 
 class TestGenericResourceMetadata:
     """[通用] 测试对 Resource 逻辑实体（元数据）的通用读写接口。"""

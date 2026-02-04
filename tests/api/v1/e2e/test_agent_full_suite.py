@@ -461,7 +461,7 @@ class TestAgentFullSuite:
         config["deep_memory"] = {
             "enabled": True,
             "enable_summarization": True,
-            "summary_model_uuid": agent_instance.resource.project.workspace.uuid # 假UUID，mock了
+            "summary_model_uuid": agent_instance.resource.workspace.uuid # 假UUID，mock了
         }
         
         agent_instance.agent_config = config
