@@ -45,7 +45,11 @@ async def created_tenantdb_resource(
         "resource_type": "tenantdb",
     }
     
-    response = await client.post(f"/api/v1/projects/{created_project_in_personal_ws.uuid}/resources", json=payload, headers=headers)
+    response = await client.post(
+        f"/api/v1/workspaces/{created_project_in_personal_ws.workspace.uuid}/resources",
+        json=payload,
+        headers=headers
+    )
     assert response.status_code == status.HTTP_201_CREATED, f"Failed to create tenantdb resource: {response.text}"
     
     resource_uuid = response.json()["data"]["uuid"]

@@ -41,6 +41,7 @@ class Workspace(Base):
     user_owner = relationship("User", lazy="joined")
     team = relationship("Team", back_populates="workspaces", lazy="joined")
     projects = relationship("Project", back_populates="workspace", cascade="all, delete-orphan")
+    resources = relationship("Resource", back_populates="workspace", cascade="all, delete-orphan")
     roles = relationship("Role", back_populates="workspace", cascade="all, delete-orphan")
     __table_args__ = (
         CheckConstraint(
@@ -88,5 +89,5 @@ class Project(Base):
 
     workspace = relationship("Workspace", back_populates="projects", lazy="joined")
     creator = relationship("User", lazy="joined")
-    resources = relationship("Resource", back_populates="project", cascade="all, delete-orphan", foreign_keys="Resource.project_id")
+    resource_refs = relationship("ProjectResourceRef", back_populates="project", cascade="all, delete-orphan")
     main_resource = relationship("Resource", foreign_keys=[main_resource_id])

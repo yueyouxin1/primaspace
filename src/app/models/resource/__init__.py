@@ -6,6 +6,7 @@ from .base import (
     ResourceCategory,
     Resource,
     ResourceRef,
+    ProjectResourceRef,
     ResourceInstance,
     ResourceStatus,
     VersionStatus,

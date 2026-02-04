@@ -69,7 +69,7 @@ class Resource(Base):
     # 必要
     uuid = Column(String(36), nullable=False, unique=True, index=True, default=generate_uuid, comment="资源的全局唯一标识符")
     # 必要
-    project_id = Column(Integer, ForeignKey('ai_projects.id', ondelete='CASCADE'), nullable=False, index=True, comment="所属项目ID")
+    workspace_id = Column(Integer, ForeignKey('ai_workspaces.id', ondelete='CASCADE'), nullable=False, index=True, comment="所属工作空间ID")
     # [关键回归] 权威的、有外键约束的类型ID
     resource_type_id = Column(Integer, ForeignKey('ai_resource_types.id'), nullable=False, index=True, comment="资源类型ID")
     # 运营/增长
@@ -97,7 +97,8 @@ class Resource(Base):
     # 预加载常用关系
     resource_type = relationship("ResourceType", lazy="joined")
     creator = relationship("User", foreign_keys=[creator_id], lazy="joined")
-    project = relationship("Project", back_populates="resources", foreign_keys=[project_id], lazy="joined")
+    workspace = relationship("Workspace", back_populates="resources", lazy="joined")
+    project_refs = relationship("ProjectResourceRef", back_populates="resource", cascade="all, delete-orphan")
 
     # 按需关系
     category = relationship("ResourceCategory")
@@ -162,6 +163,26 @@ class ResourceRef(Base):
     __table_args__ = (
         # 唯一性约束：同一个源节点的同一个实例，对同一个目标实例只能有一条引用
         UniqueConstraint('source_instance_id', 'source_node_uuid', 'target_instance_id', name='uq_ref_edge'),
+    )
+
+class ProjectResourceRef(Base):
+    """
+    项目资源引用表 - 表达项目与资源之间的直接依赖关系。
+    """
+    __tablename__ = 'ai_project_resource_refs'
+
+    id = Column(Integer, primary_key=True, comment="项目资源引用唯一主键ID")
+    project_id = Column(Integer, ForeignKey('ai_projects.id', ondelete='CASCADE'), nullable=False, index=True, comment="项目ID")
+    resource_id = Column(Integer, ForeignKey('ai_resources.id', ondelete='CASCADE'), nullable=False, index=True, comment="资源ID")
+    alias = Column(String(255), nullable=True, comment="项目内别名")
+    options = Column(JSON, nullable=True, comment="项目级引用配置")
+    created_at = Column(DateTime, nullable=False, server_default=func.now(), comment="引用创建时间")
+
+    project = relationship("Project", back_populates="resource_refs")
+    resource = relationship("Resource", back_populates="project_refs")
+
+    __table_args__ = (
+        UniqueConstraint('project_id', 'resource_id', name='uq_project_resource'),
     )
 
 class ApiPolicy(Base):

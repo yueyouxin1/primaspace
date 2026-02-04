@@ -413,7 +413,7 @@ class KnowledgeBaseService(ResourceImplementationService):
 
     async def get_documents_in_version(self, instance_uuid: str, page: int, limit: int) -> PaginatedDocumentsResponse:
         instance = await self.get_by_uuid(instance_uuid)
-        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.workspace)
         
         base_query = select(KnowledgeDocument).join(
             KnowledgeBaseVersionDocuments, KnowledgeDocument.id == KnowledgeBaseVersionDocuments.document_id
@@ -451,7 +451,7 @@ class KnowledgeBaseService(ResourceImplementationService):
         session = self.db
         instance = await self.dao.get_by_pk(instance_id)
         if not instance: return # Orphaned
-        workspace = instance.resource.project.workspace
+        workspace = instance.resource.workspace
         document = await self.document_dao.get_by_pk(document_id)
         if not document: return
         # [CRITICAL] payload includes document_uuid for filtering
@@ -561,7 +561,7 @@ class KnowledgeBaseService(ResourceImplementationService):
         vector_engine = await self.context.vector_manager.get_engine(instance.engine_alias)
 
         try:
-            workspace = instance.resource.project.workspace
+            workspace = instance.resource.workspace
             emb_res = await self.embedding_service.generate_embedding(
                 module_version_id=instance.embedding_module_version_id, workspace=workspace, texts=[chunk.content]
             )
@@ -724,7 +724,7 @@ class KnowledgeBaseService(ResourceImplementationService):
 
                     # A. Determine Billing Workspace
                     # Use runtime_workspace if provided, otherwise pick the first instance's workspace
-                    ws = runtime_workspace or group_instances[0].resource.project.workspace
+                    ws = runtime_workspace or group_instances[0].resource.workspace
 
                     # B. Embedding (Billing occurs here)
                     try:
@@ -821,7 +821,7 @@ class KnowledgeBaseService(ResourceImplementationService):
         instance = await self.get_by_uuid(instance_uuid)
         if not instance: raise NotFoundError("KnowledgeBase instance not found.")
         if instance.status != VersionStatus.WORKSPACE: raise ServiceException("Operation only allowed on workspace version.")
-        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.workspace)
         return instance
 
     async def validate_instance(self, instance: KnowledgeBase) -> ValidationResult:

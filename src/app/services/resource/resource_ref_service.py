@@ -39,7 +39,7 @@ class ResourceRefService(BaseResourceService):
             raise NotFoundError("Source instance not found.")
         
         # 鉴权：必须有权修改源资源
-        await self.context.perm_evaluator.ensure_can(["resource:update"], target=source_instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:update"], target=source_instance.resource.workspace)
 
         # 验证源实例状态：只能给草稿版本添加依赖
         if source_instance.status != VersionStatus.WORKSPACE:
@@ -56,7 +56,7 @@ class ResourceRefService(BaseResourceService):
 
         # 鉴权：必须有权读取目标资源（可见性检查）
         # 逻辑：目标是公开的 OR 用户有权读取目标所在的Workspace
-        target_workspace = target_instance.resource.project.workspace
+        target_workspace = target_instance.resource.workspace
         has_read_perm = await self.context.perm_evaluator.can(["resource:read"], target=target_workspace)
         
         if target_instance.visibility != 'public' and not has_read_perm:
@@ -98,7 +98,7 @@ class ResourceRefService(BaseResourceService):
         source_instance = await self.instance_dao.get_by_uuid(source_instance_uuid)
         if not source_instance: raise NotFoundError("Source not found")
         
-        await self.context.perm_evaluator.ensure_can(["resource:update"], target=source_instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:update"], target=source_instance.resource.workspace)
         
         target_instance = await self.instance_dao.get_by_uuid(target_instance_uuid)
         if not target_instance: raise NotFoundError("Target not found")
@@ -117,7 +117,7 @@ class ResourceRefService(BaseResourceService):
         instance = await self.instance_dao.get_by_uuid(instance_uuid)
         if not instance: raise NotFoundError("Instance not found")
         
-        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.workspace)
         
         refs = await self.dao.get_dependencies(instance.id)
         return refs

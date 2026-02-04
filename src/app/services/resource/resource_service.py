@@ -2,10 +2,10 @@
 
 from typing import Dict, List, Any
 from app.core.context import AppContext
-from app.models import User, Project
-from app.models.resource import Resource, ResourceInstance, ResourceType, ResourceRef, VersionStatus
+from app.models import User
+from app.models.resource import Resource, ResourceInstance, ResourceRef, VersionStatus
 from app.dao.resource.resource_dao import ResourceDao
-from app.dao.project.project_dao import ProjectDao
+from app.dao.workspace.workspace_dao import WorkspaceDao
 from app.dao.resource.resource_ref_dao import ResourceRefDao
 from app.dao.resource.resource_type_dao import ResourceTypeDao
 from app.schemas.resource.resource_schemas import ResourceCreate, ResourceUpdate, ResourceRead, ResourceDetailRead, InstancePublish
@@ -16,7 +16,7 @@ class ResourceService(BaseResourceService):
     def __init__(self, context: AppContext):
         super().__init__(context)
         self.dao = ResourceDao(context.db)
-        self.project_dao = ProjectDao(context.db)
+        self.workspace_dao = WorkspaceDao(context.db)
         self.resource_type_dao = ResourceTypeDao(context.db)
         self.ref_dao = ResourceRefDao(context.db)
 
@@ -27,8 +27,8 @@ class ResourceService(BaseResourceService):
         return await impl_service.serialize_instance(instance)
 
     # --- Public DTO-returning "Wrapper" Method ---
-    async def get_resources_in_project(self, project_uuid: str, actor: User) -> list[ResourceRead]:
-        resources = await self._get_resources_in_project(project_uuid, actor)
+    async def get_resources_in_workspace(self, workspace_uuid: str, actor: User) -> list[ResourceRead]:
+        resources = await self._get_resources_in_workspace(workspace_uuid, actor)
         return [ResourceRead.model_validate(r) for r in resources]
 
     async def get_resource_details_by_uuid(self, resource_uuid: str, actor: User) -> ResourceDetailRead:
@@ -36,13 +36,13 @@ class ResourceService(BaseResourceService):
         使用一次高效查询获取资源详情，主要用于填充编辑器。
         """
         # 1. [关键] 使用一次数据库查询，通过 withs (或 options) 预加载所有需要的数据。
-        #    这里我们需要 Resource, 它的 project.workspace (用于鉴权),
+        #    这里我们需要 Resource, 它的 workspace (用于鉴权),
         #    以及它的 workspace_instance (用于编辑)。
         resource = await self.dao.get_resource_details_by_uuid(resource_uuid)
         if not resource:
             raise NotFoundError("Resource not found.")
             
-        await self.context.perm_evaluator.ensure_can(["resource:read"], target=resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:read"], target=resource.workspace)
 
         # 2. 手动构建聚合响应字典，确保结构清晰
         # 首先，序列化 Resource 本身
@@ -66,8 +66,8 @@ class ResourceService(BaseResourceService):
                 
         return details
         
-    async def create_resource_in_project(self, project_uuid: str, resource_data: ResourceCreate, actor: User) -> ResourceRead:
-        new_resource = await self._create_resource_in_project(project_uuid, resource_data, actor)
+    async def create_resource_in_workspace(self, workspace_uuid: str, resource_data: ResourceCreate, actor: User) -> ResourceRead:
+        new_resource = await self._create_resource_in_workspace(workspace_uuid, resource_data, actor)
         return ResourceRead.model_validate(new_resource)
 
     async def update_resource_metadata(self, resource_uuid: str, update_data: ResourceUpdate, actor: User) -> ResourceRead:
@@ -106,21 +106,21 @@ class ResourceService(BaseResourceService):
         return await self.serialize_instance(archived_instance)
 
     # --- Internal ORM-returning "Workhorse" Method ---
-    async def _get_resources_in_project(self, project_uuid: str, actor: User) -> list[Resource]:
-        project = await self.project_dao.get_by_uuid(project_uuid, withs=["workspace"])
-        if not project:
-            raise NotFoundError("Project not found.")
-            
-        await self.context.perm_evaluator.ensure_can(["resource:read"], target=project.workspace)
-        resources = await self.dao.get_resources_by_project_id(project.id)
+    async def _get_resources_in_workspace(self, workspace_uuid: str, actor: User) -> list[Resource]:
+        workspace = await self.workspace_dao.get_by_uuid(workspace_uuid, withs=["user_owner", "team"])
+        if not workspace:
+            raise NotFoundError("Workspace not found.")
+
+        await self.context.perm_evaluator.ensure_can(["resource:read"], target=workspace)
+        resources = await self.dao.get_resources_by_workspace_id(workspace.id)
         return resources
 
-    async def _create_resource_in_project(self, project_uuid: str, resource_data: ResourceCreate, actor: User) -> Resource:
+    async def _create_resource_in_workspace(self, workspace_uuid: str, resource_data: ResourceCreate, actor: User) -> Resource:
         # 1. 通用逻辑 (权限、验证) - 保持不变
-        project = await self.project_dao.get_by_uuid(project_uuid)
-        if not project:
-            raise NotFoundError("Project not found.")
-        await self.context.perm_evaluator.ensure_can(["resource:create"], target=project.workspace)
+        workspace = await self.workspace_dao.get_by_uuid(workspace_uuid, withs=["user_owner", "team"])
+        if not workspace:
+            raise NotFoundError("Workspace not found.")
+        await self.context.perm_evaluator.ensure_can(["resource:create"], target=workspace)
 
         resource_type = await self.resource_type_dao.get_one(where={"name": resource_data.resource_type})
         if not resource_type:
@@ -130,7 +130,7 @@ class ResourceService(BaseResourceService):
         new_resource = Resource(
             name=resource_data.name,
             description=resource_data.description,
-            project_id=project.id,
+            workspace_id=workspace.id,
             resource_type_id=resource_type.id,
             creator_id=actor.id
         )
@@ -171,10 +171,10 @@ class ResourceService(BaseResourceService):
         resource = await self.dao.get_by_uuid(
             resource_uuid,
             # 加载基础实例数据
-            withs=["workspace_instance"]
+            withs=["workspace", "workspace_instance"]
         )
         
-        await self.context.perm_evaluator.ensure_can(["resource:update"], target=resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:update"], target=resource.workspace)
 
         # 2. 更新 Resource 实体 (单一事实来源)
         update_dict = update_data.model_dump(exclude_unset=True)
@@ -214,14 +214,14 @@ class ResourceService(BaseResourceService):
         resource = await self.dao.get_by_uuid(
             resource_uuid,
             # 加载实例领域数据
-            withs=[*self.dao.workspace_instance_loaders]
+            withs=["workspace", *self.dao.workspace_instance_loaders]
         )
 
         if not resource:
             raise NotFoundError("Resource not found.")
             
         # 2. 权限检查
-        await self.context.perm_evaluator.ensure_can(["resource:delete"], target=resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:delete"], target=resource.workspace)
 
         # 3. [服务层级联] 遍历所有子实例，并委托给专家服务进行删除
 
@@ -241,7 +241,7 @@ class ResourceService(BaseResourceService):
     async def _get_instance_by_uuid(self, instance_uuid: str, actor: User) -> ResourceInstance:
         service = await self._get_impl_service_by_instance(instance_uuid)
         instance = await service.get_by_uuid(instance_uuid)
-        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.workspace)
         return instance
 
     async def _publish_instance(
@@ -261,7 +261,7 @@ class ResourceService(BaseResourceService):
 
         # 2. 权限检查
         resource = source_instance.resource
-        await self.context.perm_evaluator.ensure_can(["resource:publish"], target=resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:publish"], target=resource.workspace)
 
         # 3. 验证版本标签的唯一性
         existing_version = await self.instance_dao.get_one(where={
@@ -320,7 +320,7 @@ class ResourceService(BaseResourceService):
         if not instance or instance.status != VersionStatus.PUBLISHED:
             raise ServiceException("Only a published instance can be archived.")
 
-        await self.context.perm_evaluator.ensure_can(["resource:publish"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:publish"], target=instance.resource.workspace)
         
         instance.status = VersionStatus.ARCHIVED
 
@@ -343,7 +343,7 @@ class ResourceService(BaseResourceService):
 
     async def _update_instance_by_uuid(self, instance_uuid: str, update_data: Dict[str, Any], actor: User) -> ResourceInstance:
         instance = await self.instance_dao.get_by_uuid(instance_uuid)
-        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.workspace)
         service = await self._get_impl_service_by_instance(instance)
         updated_instance = await service.update_instance(instance, update_data)
         await self.db.flush()
@@ -360,7 +360,7 @@ class ResourceService(BaseResourceService):
         
         # 2. 执行通用逻辑：权限检查
         # 注意：删除版本也应该使用 "resource:delete" 权限，因为它同样具有破坏性
-        await self.context.perm_evaluator.ensure_can(["resource:delete"], target=instance.resource.project.workspace)
+        await self.context.perm_evaluator.ensure_can(["resource:delete"], target=instance.resource.workspace)
         
         # 3. [关键业务规则] 添加保护性检查
         resource = instance.resource

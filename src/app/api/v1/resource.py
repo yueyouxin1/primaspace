@@ -8,25 +8,31 @@ from app.core.context import AppContext
 from app.api.dependencies.context import AuthContextDep
 from app.schemas.common import JsonResponse, MsgResponse
 from app.schemas.resource.resource_schemas import ResourceRead, ResourceDetailRead, ResourceCreate, ResourceUpdate, InstancePublish
+from app.schemas.project.project_resource_schemas import (
+    ProjectResourceReferenceCreate,
+    ProjectResourceReferenceRead,
+)
 from app.schemas.resource.resource_ref_schemas import ReferenceCreate, ReferenceRead, BatchSyncReferences
 from app.services.resource.resource_service import ResourceService
+from app.services.project.project_resource_ref_service import ProjectResourceRefService
 from app.services.resource.resource_ref_service import ResourceRefService
 from app.services.exceptions import PermissionDeniedError, NotFoundError, ServiceException
 
 # 同样，使用混合路由模式
-project_router = APIRouter() # /projects/{uuid}/resources
+workspace_router = APIRouter() # /workspaces/{uuid}/resources
+project_router = APIRouter() # /projects/{uuid}/resources (references)
 resource_router = APIRouter() # /resources/{uuid}
 instance_router = APIRouter() # /instances/{uuid}
 
-@project_router.post("", response_model=JsonResponse[ResourceRead], status_code=status.HTTP_201_CREATED, summary="Create a Resource in a Project")
+@workspace_router.post("", response_model=JsonResponse[ResourceRead], status_code=status.HTTP_201_CREATED, summary="Create a Resource in a Workspace")
 async def create_resource(
-    project_uuid: str,
+    workspace_uuid: str,
     resource_in: ResourceCreate,
     context: AppContext = AuthContextDep
 ):
     try:
         service = ResourceService(context)
-        new_resource = await service.create_resource_in_project(project_uuid, resource_in, context.actor)
+        new_resource = await service.create_resource_in_workspace(workspace_uuid, resource_in, context.actor)
         return JsonResponse(data=new_resource)
     except PermissionDeniedError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -75,14 +81,14 @@ async def delete_resource(
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@project_router.get("", response_model=JsonResponse[List[ResourceRead]], summary="List Resources in a Project")
+@workspace_router.get("", response_model=JsonResponse[List[ResourceRead]], summary="List Resources in a Workspace")
 async def list_resources(
-    project_uuid: str,
+    workspace_uuid: str,
     context: AppContext = AuthContextDep
 ):
     try:
         service = ResourceService(context)
-        resources = await service.get_resources_in_project(project_uuid, context.actor)
+        resources = await service.get_resources_in_workspace(workspace_uuid, context.actor)
         return JsonResponse(data=resources)
     except PermissionDeniedError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -90,6 +96,67 @@ async def list_resources(
         raise HTTPException(status_code=404, detail=str(e))
     except ServiceException as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@project_router.post(
+    "",
+    response_model=JsonResponse[ProjectResourceReferenceRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Add a Resource Reference to a Project"
+)
+async def add_project_resource_reference(
+    project_uuid: str,
+    ref_in: ProjectResourceReferenceCreate,
+    context: AppContext = AuthContextDep
+):
+    try:
+        service = ProjectResourceRefService(context)
+        new_ref = await service.add_reference(project_uuid, ref_in, context.actor)
+        return JsonResponse(data=new_ref)
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ServiceException as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@project_router.get(
+    "",
+    response_model=JsonResponse[List[ProjectResourceReferenceRead]],
+    summary="List Project Resource References"
+)
+async def list_project_resource_references(
+    project_uuid: str,
+    context: AppContext = AuthContextDep
+):
+    try:
+        service = ProjectResourceRefService(context)
+        refs = await service.list_references(project_uuid, context.actor)
+        return JsonResponse(data=refs)
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ServiceException as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@project_router.delete(
+    "/{resource_uuid}",
+    response_model=MsgResponse,
+    summary="Remove a Resource Reference from a Project"
+)
+async def remove_project_resource_reference(
+    project_uuid: str,
+    resource_uuid: str,
+    context: AppContext = AuthContextDep
+):
+    try:
+        service = ProjectResourceRefService(context)
+        await service.remove_reference(project_uuid, resource_uuid, context.actor)
+        return MsgResponse(msg="Project resource reference removed successfully.")
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @resource_router.get(
     "/{resource_uuid}",
