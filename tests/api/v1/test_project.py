@@ -20,6 +20,7 @@ from tests.conftest import (
     created_team,
     team_workspace,
     created_project_in_personal_ws,
+    created_resource_factory,
 )
 
 # 将此模块中的所有测试都标记为异步执行
@@ -110,6 +111,35 @@ class TestProjectLifecycle:
         # Assert: Verify the project is truly gone
         response_get = await client.get(f"/api/v1/projects/{created_project_in_personal_ws.uuid}", headers=headers)
         assert response_get.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_get_project_dependency_graph(
+        self,
+        client: AsyncClient,
+        auth_headers_factory: Callable,
+        registered_user_with_pro: UserContext,
+        created_project_in_personal_ws: Project,
+        created_resource_factory: Callable,
+    ):
+        """[成功路径] 验证项目依赖图可返回声明资源节点。"""
+        headers = await auth_headers_factory(registered_user_with_pro)
+        resource = await created_resource_factory("tool")
+
+        ref_payload = {"resource_uuid": resource.uuid}
+        ref_response = await client.post(
+            f"/api/v1/projects/{created_project_in_personal_ws.uuid}/resources",
+            json=ref_payload,
+            headers=headers,
+        )
+        assert ref_response.status_code == status.HTTP_201_CREATED, ref_response.text
+
+        graph_response = await client.get(
+            f"/api/v1/projects/{created_project_in_personal_ws.uuid}/dependency-graph",
+            headers=headers,
+        )
+        assert graph_response.status_code == status.HTTP_200_OK, graph_response.text
+        graph = graph_response.json()["data"]
+        node_resource_uuids = {node["resource_uuid"] for node in graph["nodes"]}
+        assert resource.uuid in node_resource_uuids
 
 class TestProjectPermissions:
     """测试项目的权限隔离，权限继承自其所在的Workspace。"""
