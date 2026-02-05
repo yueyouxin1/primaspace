@@ -19,6 +19,7 @@ from app.models.resource import Resource, ResourceInstance, VersionStatus
 from app.models.resource.knowledge import KnowledgeDocument, DocumentProcessingStatus, KnowledgeBaseVersionDocuments, KnowledgeChunk
 from app.dao.resource.knowledge.knowledge_dao import KnowledgeDocumentDao
 from app.engine.vector.base import SearchResult
+from app.engine.model.embedding import BatchEmbeddingResult, EmbeddingResult
 from app.schemas.resource.knowledge.knowledge_schemas import KnowledgeBaseInstanceConfig # 导入用于显式验证的 Schema
 from app.system.vectordb.manager import resolve_collection_name_for_version
 
@@ -260,12 +261,13 @@ class TestKnowledgeBaseExecution(BaseTestExecution):
 
     @pytest.fixture
     def mock_search_dependencies(self, monkeypatch, vector_manager_mock):
-        # 1. Mock Embedding (保持不变)
-        mock_embedding_result = AsyncMock()
-        mock_embedding_result.total_tokens = 10
-        mock_embedding_result.results = [AsyncMock(vector=[0.1] * 128)]
+        # 1. Mock 底层 Embedding 引擎调用（不要绕过 EmbeddingService 的计费逻辑）
+        mock_embedding_result = BatchEmbeddingResult(
+            total_tokens=10,
+            results=[EmbeddingResult(index=0, vector=[0.1] * 128)],
+        )
         mock_run_batch = AsyncMock(return_value=mock_embedding_result)
-        monkeypatch.setattr("app.services.resource.knowledge.knowledge_service.EmbeddingService.generate_embedding", mock_run_batch)
+        monkeypatch.setattr("app.services.module.embedding_service.EmbeddingEngineService.run_batch", mock_run_batch)
 
         # --- 关键修正 ---
         # 定义我们在 Mock 中使用的假 UUID
@@ -315,6 +317,7 @@ class TestKnowledgeBaseExecution(BaseTestExecution):
 
     async def test_execute_insufficient_funds(
         self,
+        monkeypatch,
         client,
         db_session: AsyncSession,
         auth_headers_factory: Callable,
@@ -323,6 +326,16 @@ class TestKnowledgeBaseExecution(BaseTestExecution):
         success_payload: Dict[str, Any],
     ):
         """[计费场景] 验证当账户余额不足时，执行会失败。"""
+        # 避免被权益包覆盖，强制本用例仅走钱包余额路径
+        monkeypatch.setattr(
+            "app.services.billing.interceptor.BillingInterceptor._get_priority_entitlement_ids_for_feature",
+            AsyncMock(return_value=[]),
+        )
+        monkeypatch.setattr(
+            "app.services.billing.interceptor.BillingInterceptor._get_all_active_entitlements",
+            AsyncMock(return_value=[]),
+        )
+
         # Arrange: 设置一个极低的余额
         registered_user_with_pro.user.billing_account.balance = Decimal('0.00000001')
         await db_session.flush()
