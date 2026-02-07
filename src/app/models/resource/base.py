@@ -94,10 +94,10 @@ class Resource(Base):
     # 必要
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now(), comment="资源最后更新时间")
 
-    # 预加载常用关系
-    resource_type = relationship("ResourceType", lazy="joined")
-    creator = relationship("User", foreign_keys=[creator_id], lazy="joined")
-    workspace = relationship("Workspace", back_populates="resources", lazy="joined")
+    # 默认按需加载，热路径由 DAO 显式声明 eager 策略。
+    resource_type = relationship("ResourceType")
+    creator = relationship("User", foreign_keys=[creator_id])
+    workspace = relationship("Workspace", back_populates="resources")
     project_refs = relationship("ProjectResourceRef", back_populates="resource", cascade="all, delete-orphan")
 
     # 按需关系
@@ -248,19 +248,17 @@ class ResourceInstance(Base):
     # 增强/审计
     published_at = Column(DateTime, nullable=True, comment="版本发布生效时间")
 
-    # 预加载常用关系
+    # 默认按需加载，避免在多态基表查询时隐式扩大 JOIN 范围。
     resource = relationship(
         "Resource", 
         back_populates="instance_versions",
-        foreign_keys=[resource_id],
-        lazy="joined"
+        foreign_keys=[resource_id]
     )
     creator = relationship(
         "User", 
-        foreign_keys=[creator_id],
-        lazy="joined"
+        foreign_keys=[creator_id]
     )
-    linked_feature = relationship("Feature", lazy="joined")
+    linked_feature = relationship("Feature")
 
     # 按需关系
     published_user = relationship("User", foreign_keys=[published_by])
@@ -273,6 +271,8 @@ class ResourceInstance(Base):
     
     __table_args__ = (
         UniqueConstraint('resource_id', 'version_tag', name='uq_resource_version_tag'),
+        # 版本列表热路径: WHERE resource_id = ? ORDER BY created_at DESC
+        Index('ix_resource_instances_resource_created_at', 'resource_id', 'created_at'),
         # 一个资源只能有一个 workspace 状态的版本
         Index('ix_resource_workspace_status', 'resource_id', unique=True, postgresql_where=(status == VersionStatus.WORKSPACE)),
     )

@@ -168,7 +168,7 @@ class ResourceService(BaseResourceService):
         # 5. 序列化需要instance.uuid，re-fetch比refresh更安全
         final_resource = await self.dao.get_one(
             where={"id": new_resource.id},
-            withs=["workspace_instance", "latest_published_instance"]
+            withs=["creator", "resource_type", "workspace_instance", "latest_published_instance"]
         )
         
         if not final_resource:
@@ -210,7 +210,7 @@ class ResourceService(BaseResourceService):
         # 5. 重新查询
         final_resource = await self.dao.get_one(
             where={"id": resource.id},
-            withs=["workspace_instance", "latest_published_instance"]
+            withs=["creator", "resource_type", "workspace_instance", "latest_published_instance"]
         )
         
         if not final_resource:

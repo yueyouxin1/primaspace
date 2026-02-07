@@ -2,9 +2,12 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from sqlalchemy.orm import selectinload, lazyload
-from typing import Optional, List
+from sqlalchemy.orm import selectinload, lazyload, joinedload, load_only
+from typing import Optional
 from app.dao.base_dao import BaseDao
+from app.models.identity import User, Team
+from app.models.workspace import Workspace
+from app.models.resource import Resource
 from app.models.resource.uiapp import UiApp, UiPage
 
 class UiAppDao(BaseDao[UiApp]):
@@ -24,6 +27,34 @@ class UiAppDao(BaseDao[UiApp]):
             .where(UiApp.uuid == uuid)
             .options(
                 lazyload("*"),
+                joinedload(UiApp.resource).options(
+                    lazyload("*"),
+                    load_only(
+                        Resource.id,
+                        Resource.uuid,
+                        Resource.workspace_id,
+                        Resource.resource_type_id
+                    ),
+                    joinedload(Resource.workspace).options(
+                        lazyload("*"),
+                        load_only(
+                            Workspace.id,
+                            Workspace.uuid,
+                            Workspace.owner_user_id,
+                            Workspace.owner_team_id
+                        ),
+                        joinedload(Workspace.user_owner).options(
+                            joinedload(User.billing_account)
+                        ),
+                        joinedload(Workspace.team).options(
+                            joinedload(Team.billing_account)
+                        ),
+                    )
+                ),
+                joinedload(UiApp.creator).options(
+                    lazyload("*"),
+                    load_only(User.id, User.uuid, User.nick_name, User.avatar)
+                ),
                 # 仅加载页面的元数据，排除 heavy data
                 selectinload(UiApp.pages).load_only(
                     UiPage.page_uuid, UiPage.path, UiPage.label, 
