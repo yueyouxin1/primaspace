@@ -72,6 +72,13 @@ class ResourceService(BaseResourceService):
         details['latest_published_instance_uuid'] = resource.latest_published_instance.uuid if resource.latest_published_instance else None
                 
         return details
+
+    async def get_resource_instances_by_uuid(self, resource_uuid: str, actor: User) -> List[Dict[str, Any]]:
+        instances = await self._get_resource_instances_by_uuid(resource_uuid, actor)
+        serialized_instances: List[Dict[str, Any]] = []
+        for instance in instances:
+            serialized_instances.append(await self.serialize_instance(instance))
+        return serialized_instances
         
     async def create_resource_in_workspace(self, workspace_uuid: str, resource_data: ResourceCreate, actor: User) -> ResourceRead:
         new_resource = await self._create_resource_in_workspace(workspace_uuid, resource_data, actor)
@@ -170,7 +177,7 @@ class ResourceService(BaseResourceService):
         
         if not final_resource:
             # 这几乎不可能发生，但作为防御性编程
-            raise NotFoundError("Failed to retrieve newly created resource.")
+            raise ServiceException("Failed to retrieve newly created resource.")
             
         return final_resource
 
@@ -254,6 +261,20 @@ class ResourceService(BaseResourceService):
         instance = await service.get_by_uuid(instance_uuid)
         await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.workspace)
         return instance
+
+    async def _get_resource_instances_by_uuid(self, resource_uuid: str, actor: User) -> List[ResourceInstance]:
+        resource = await self.dao.get_by_uuid(resource_uuid, withs=["workspace"])
+        if not resource:
+            raise NotFoundError("Resource not found.")
+
+        await self.context.perm_evaluator.ensure_can(["resource:read"], target=resource.workspace)
+
+        instances = await self.instance_dao.get_list(
+            where={"resource_id": resource.id},
+            order=[self.instance_dao.model.created_at.desc()],
+            unique=True
+        )
+        return instances
 
     async def _get_instance_dependencies(self, instance_uuid: str, actor: User):
         service = await self._get_impl_service_by_instance(instance_uuid)

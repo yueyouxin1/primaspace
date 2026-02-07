@@ -183,6 +183,26 @@ async def get_resource_details(
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+@resource_router.get(
+    "/{resource_uuid}/instances",
+    response_model=JsonResponse[List[Dict[str, Any]]],
+    summary="List all instances of a Resource"
+)
+async def list_resource_instances(
+    resource_uuid: str,
+    context: AppContext = AuthContextDep
+):
+    try:
+        service = ResourceService(context)
+        instances = await service.get_resource_instances_by_uuid(resource_uuid, context.actor)
+        return JsonResponse(data=instances)
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ServiceException as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @instance_router.get(
     "/{instance_uuid}", 
     response_model=JsonResponse[Dict[str, Any]], # [新] 响应是通用的字典
