@@ -1,8 +1,8 @@
 """initial migration up
 
-Revision ID: e51b25cdbeb5
+Revision ID: baede282df95
 Revises: 
-Create Date: 2026-02-05 01:01:38.005412
+Create Date: 2026-02-08 03:03:41.683771
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'e51b25cdbeb5'
+revision: str = 'baede282df95'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -532,6 +532,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_ai_resource_instances_status'), 'ai_resource_instances', ['status'], unique=False)
     op.create_index(op.f('ix_ai_resource_instances_uuid'), 'ai_resource_instances', ['uuid'], unique=True)
     op.create_index(op.f('ix_ai_resource_instances_version_tag'), 'ai_resource_instances', ['version_tag'], unique=False)
+    op.create_index('ix_resource_instances_resource_created_at', 'ai_resource_instances', ['resource_id', 'created_at'], unique=False)
     op.create_index('ix_resource_workspace_status', 'ai_resource_instances', ['resource_id'], unique=True, postgresql_where=sa.text("status = 'WORKSPACE'"))
     op.create_table('assets',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -1165,6 +1166,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_assets_content_hash'), table_name='assets')
     op.drop_table('assets')
     op.drop_index('ix_resource_workspace_status', table_name='ai_resource_instances', postgresql_where=sa.text("status = 'WORKSPACE'"))
+    op.drop_index('ix_resource_instances_resource_created_at', table_name='ai_resource_instances')
     op.drop_index(op.f('ix_ai_resource_instances_version_tag'), table_name='ai_resource_instances')
     op.drop_index(op.f('ix_ai_resource_instances_uuid'), table_name='ai_resource_instances')
     op.drop_index(op.f('ix_ai_resource_instances_status'), table_name='ai_resource_instances')

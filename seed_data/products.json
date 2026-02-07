@@ -20,7 +20,7 @@
       },
       {
         "feature_name": "limit:tool:custom:execution",
-        "quota": 1,
+        "quota": 100,
         "is_resettable": true
       }
     ],
@@ -47,7 +47,7 @@
       },
       {
         "feature_name": "limit:tool:custom:execution",
-        "quota": 1,
+        "quota": 100,
         "is_resettable": true
       }
     ],
@@ -82,7 +82,7 @@
       },
       {
         "feature_name": "limit:tool:custom:execution",
-        "quota": 1,
+        "quota": 100,
         "is_resettable": true
       }
     ],
@@ -112,7 +112,7 @@
       },
       {
         "feature_name": "limit:tool:custom:execution",
-        "quota": 1,
+        "quota": 100,
         "is_resettable": true
       }
     ],

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload, joinedload, load_only
 from typing import Optional
 from app.dao.base_dao import BaseDao
+from app.models.product import Feature, Product, Price
 from app.models.resource.tool import Tool
 from app.models.resource import Resource
 from app.models.workspace import Workspace
@@ -49,6 +50,15 @@ class ToolDao(BaseDao[Tool]):
                     lazyload("*"),
                     load_only(User.id, User.uuid, User.nick_name, User.avatar)
                 ),
-                joinedload(Tool.linked_feature),
+                joinedload(Tool.linked_feature).options(
+                    lazyload("*"),
+                    joinedload(Feature.product).options(
+                        lazyload("*"),
+                        joinedload(Product.prices).options(
+                            lazyload("*"),
+                            joinedload(Price.tiers)
+                        )
+                    )
+                ),
             ]
         )

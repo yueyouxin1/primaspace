@@ -1,15 +1,14 @@
 # src/app/services/billing/pricing_provider.py
 
 import json
-from decimal import Decimal
-from typing import Optional, Dict
+from typing import Optional
 from datetime import timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models import Currency, Feature, Price, ProductType, BillingCycle
-from app.dao.product.feature_dao import FeatureDao
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload, lazyload
+from app.models import Currency, Feature, Price, Product
 from app.services.redis_service import RedisService
 from app.schemas.product.product_schemas import PriceInfo, TierInfo
-from app.services.exceptions import ConfigurationError
 
 class PricingProvider:
     """
@@ -22,7 +21,6 @@ class PricingProvider:
     def __init__(self, db: AsyncSession, redis: RedisService):
         self.db = db
         self.redis = redis
-        self.feature_dao = FeatureDao(db)
 
     def _get_cache_key(self, feature_id: int, currency: Currency) -> str:
         # [CRITICAL CHANGE] Cache key now includes currency
@@ -32,7 +30,7 @@ class PricingProvider:
         """
         [REFACTORED CORE METHOD]
         Gets the PriceInfo DTO for a given Feature ORM object.
-        It assumes 'feature.product.prices' has been preloaded.
+        Cache miss 时会主动重查完整定价链路，不依赖调用方预加载。
         This method is now cache-first and data-parsing-second.
         """
         cache_key = self._get_cache_key(feature.id, currency)
@@ -42,13 +40,37 @@ class PricingProvider:
         if cached_info:
             return PriceInfo.model_validate(cached_info) if cached_info != "NOT_FOUND" else None
 
-        # 2. Cache miss: Parse the pre-loaded ORM object
-        price_info = self._parse_price_from_feature(feature, currency)
+        # 2. Cache miss: 使用显式 eager loading 重查一次，避免运行时懒加载触发 MissingGreenlet。
+        feature_for_pricing = await self._load_feature_for_pricing(feature.id)
+        if not feature_for_pricing:
+            return None
+        price_info = self._parse_price_from_feature(feature_for_pricing, currency)
         
         # 3. Cache the result
         await self.redis.set_json(cache_key, price_info.model_dump(mode='json') if price_info else "NOT_FOUND", expire=self._CACHE_EXPIRY)
         
         return price_info
+
+    async def _load_feature_for_pricing(self, feature_id: int) -> Optional[Feature]:
+        """
+        显式加载定价所需链路，避免在异步上下文中发生隐式 lazy load。
+        """
+        stmt = (
+            select(Feature)
+            .where(Feature.id == feature_id)
+            .options(
+                lazyload("*"),
+                joinedload(Feature.product).options(
+                    lazyload("*"),
+                    joinedload(Product.prices).options(
+                        lazyload("*"),
+                        joinedload(Price.tiers)
+                    )
+                )
+            )
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
 
     def _parse_price_from_feature(self, feature: Feature, currency: Currency) -> Optional[PriceInfo]:
         """
