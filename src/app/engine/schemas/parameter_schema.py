@@ -1,16 +1,49 @@
-# engine/schemas/parameter_schema.py
+# src/app/engine/schemas/parameter_schema.py
 
-from pydantic import BaseModel, Field
-from typing import Literal, Optional, List, Any, Dict
+from typing import Literal, Optional, List, Any, Dict, Union, Annotated
+from pydantic import BaseModel, Field, ConfigDict
 
-# [核心] 用于定义 'value' 字段的结构
-class ParameterValue(BaseModel):
+# ========================================================================
+# 1. 定义引用内容的严格结构
+# ========================================================================
+class ValueRefContent(BaseModel):
     """
-    实例级别的配置值，在设计时设置。
-    用于覆盖 `default` 后备值，其优先级高于 `default`。
+    当 value.type == 'ref' 时，content 必须符合此结构。
     """
-    type: Literal["literal", "expr", "ref"] = Field(..., description="值的类型")
-    content: Any = Field(..., description="字面量内容、表达式字符串或引用路径")
+    blockID: str = Field(..., description="引用的源节点ID")
+    path: str = Field(..., description="引用的变量路径 (e.g., 'output.result')")
+    source: Optional[str] = Field(None, description="元数据源标识，如 loop-block-output")
+    
+    model_config = ConfigDict(extra="ignore") # 忽略多余字段，保证纯净
+
+# ========================================================================
+# 2. 定义具体的 Value 子类型
+# ========================================================================
+
+class LiteralValue(BaseModel):
+    """字面量值：content 可以是任意 JSON 合法类型"""
+    type: Literal["literal"] = "literal"
+    content: Any = Field(..., description="静态值 (String, Number, Bool, List, Dict)")
+
+class ExprValue(BaseModel):
+    """表达式：content 必须是字符串"""
+    type: Literal["expr"] = "expr"
+    content: str = Field(..., description="表达式字符串 (e.g. '{{a}} + 1')")
+
+class RefValue(BaseModel):
+    """引用：content 必须是对象结构"""
+    type: Literal["ref"] = "ref"
+    content: ValueRefContent = Field(..., description="引用描述对象")
+
+# ========================================================================
+# 3. 定义聚合类型 (核心修正点)
+# ========================================================================
+# 使用 Annotated + discriminator，Pydantic 会自动根据 type 的值校验 content
+ParameterValue = Annotated[Union[LiteralValue, ExprValue, RefValue], Field(discriminator='type')]
+
+# ========================================================================
+# 4. Schema 定义 (保持不变，但 ParameterValue 现在是强类型的)
+# ========================================================================
 
 # [核心] 对应于 TypeScript 中的 SchemaBlueprint
 class SchemaBlueprint(BaseModel):

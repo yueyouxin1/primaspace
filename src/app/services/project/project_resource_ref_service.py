@@ -52,8 +52,10 @@ class ProjectResourceRefService:
         )
         self.db.add(new_ref)
         await self.db.flush()
-        await self.db.refresh(new_ref)
-        return ProjectResourceReferenceRead.model_validate(new_ref)
+        final_ref = await self.ref_dao.get_by_project_and_resource(project.id, resource.id)
+        if not final_ref:
+            raise NotFoundError("Project resource reference not found.")
+        return ProjectResourceReferenceRead.model_validate(final_ref)
 
     async def list_references(
         self, project_uuid: str, actor: User

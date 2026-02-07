@@ -12,7 +12,21 @@ class ProjectResourceRefDao(BaseDao[ProjectResourceRef]):
         super().__init__(ProjectResourceRef, db_session)
 
     async def get_by_project_and_resource(self, project_id: int, resource_id: int) -> Optional[ProjectResourceRef]:
-        return await self.get_one(where={"project_id": project_id, "resource_id": resource_id})
+        stmt = (
+            select(ProjectResourceRef)
+            .where(
+                ProjectResourceRef.project_id == project_id, 
+                ProjectResourceRef.resource_id == resource_id
+            )
+            .options(
+                joinedload(ProjectResourceRef.resource).joinedload(Resource.resource_type),
+                joinedload(ProjectResourceRef.resource).joinedload(Resource.creator),
+                joinedload(ProjectResourceRef.resource).joinedload(Resource.workspace_instance),
+                joinedload(ProjectResourceRef.resource).joinedload(Resource.latest_published_instance),
+            )
+        )
+        result = await self.db_session.execute(stmt)
+        return result.scalars().first()
 
     async def list_by_project_id(self, project_id: int) -> List[ProjectResourceRef]:
         stmt = (

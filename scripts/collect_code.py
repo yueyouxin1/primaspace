@@ -8,7 +8,7 @@ PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 # --- [2] 目标列表配置 (在此处填入您想要收集的目录或文件) ---
 # 如果命令行没有传入参数，脚本将默认使用此列表
 TARGET_LIST = [
-"src/app"
+"src/app/engine"
 ]
 
 # --- [3] 输出配置 ---

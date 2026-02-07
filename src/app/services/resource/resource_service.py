@@ -170,7 +170,7 @@ class ResourceService(BaseResourceService):
         
         if not final_resource:
             # 这几乎不可能发生，但作为防御性编程
-            raise ServiceException("Failed to retrieve newly created resource.")
+            raise NotFoundError("Failed to retrieve newly created resource.")
             
         return final_resource
 

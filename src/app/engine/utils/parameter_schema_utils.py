@@ -109,8 +109,8 @@ async def _process_schema_node(item_schema: Union[ParameterSchema, SchemaBluepri
         elif value_type == 'ref':
             # This part is for workflow context, but we implement it for future-proofing.
             # In a stateless plugin call, `context` will be empty.
-            block_id = content.get('blockID')
-            path = content.get('path')
+            block_id = getattr(content, 'blockID', None)
+            path = getattr(content, 'path', None)
             if block_id and path and context:
                 source_data = context.get(block_id)
                 if isinstance(source_data, Streamable):
