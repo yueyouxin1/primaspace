@@ -2,9 +2,26 @@
 
 from typing import List, Optional
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload, load_only, lazyload
 from app.dao.base_dao import BaseDao
-from app.models.resource import ProjectResourceRef, Resource
+from app.models.resource import ProjectResourceRef, Resource, ResourceInstance
+
+
+def _instance_pointer_loader(relation_attr):
+    return (
+        selectinload(relation_attr)
+        .options(
+            load_only(
+                ResourceInstance.id,
+                ResourceInstance.uuid,
+                ResourceInstance.resource_type,
+                ResourceInstance.status
+            ),
+            lazyload(ResourceInstance.resource),
+            lazyload(ResourceInstance.creator),
+            lazyload(ResourceInstance.linked_feature),
+        )
+    )
 
 
 class ProjectResourceRefDao(BaseDao[ProjectResourceRef]):
@@ -21,8 +38,10 @@ class ProjectResourceRefDao(BaseDao[ProjectResourceRef]):
             .options(
                 joinedload(ProjectResourceRef.resource).joinedload(Resource.resource_type),
                 joinedload(ProjectResourceRef.resource).joinedload(Resource.creator),
-                joinedload(ProjectResourceRef.resource).joinedload(Resource.workspace_instance),
-                joinedload(ProjectResourceRef.resource).joinedload(Resource.latest_published_instance),
+                joinedload(ProjectResourceRef.resource).options(
+                    _instance_pointer_loader(Resource.workspace_instance),
+                    _instance_pointer_loader(Resource.latest_published_instance),
+                ),
             )
         )
         result = await self.db_session.execute(stmt)
@@ -35,8 +54,10 @@ class ProjectResourceRefDao(BaseDao[ProjectResourceRef]):
             .options(
                 joinedload(ProjectResourceRef.resource).joinedload(Resource.resource_type),
                 joinedload(ProjectResourceRef.resource).joinedload(Resource.creator),
-                joinedload(ProjectResourceRef.resource).joinedload(Resource.workspace_instance),
-                joinedload(ProjectResourceRef.resource).joinedload(Resource.latest_published_instance),
+                joinedload(ProjectResourceRef.resource).options(
+                    _instance_pointer_loader(Resource.workspace_instance),
+                    _instance_pointer_loader(Resource.latest_published_instance),
+                ),
             )
             .order_by(ProjectResourceRef.created_at.desc())
         )

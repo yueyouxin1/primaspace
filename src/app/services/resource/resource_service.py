@@ -74,11 +74,7 @@ class ResourceService(BaseResourceService):
         return details
 
     async def get_resource_instances_by_uuid(self, resource_uuid: str, actor: User) -> List[Dict[str, Any]]:
-        instances = await self._get_resource_instances_by_uuid(resource_uuid, actor)
-        serialized_instances: List[Dict[str, Any]] = []
-        for instance in instances:
-            serialized_instances.append(await self.serialize_instance(instance))
-        return serialized_instances
+        return await self._get_resource_instances_by_uuid(resource_uuid, actor)
         
     async def create_resource_in_workspace(self, workspace_uuid: str, resource_data: ResourceCreate, actor: User) -> ResourceRead:
         new_resource = await self._create_resource_in_workspace(workspace_uuid, resource_data, actor)
@@ -231,8 +227,8 @@ class ResourceService(BaseResourceService):
         # 1. 获取 Resource，并预加载所有需要被删除的子实例      
         resource = await self.dao.get_by_uuid(
             resource_uuid,
-            # 加载实例领域数据
-            withs=["workspace", *self.dao.workspace_instance_loaders]
+            # 仅加载 workspace 和 workspace_instance 指针字段，完整实例后续按类型加载。
+            withs=["workspace", "workspace_instance"]
         )
 
         if not resource:
@@ -249,6 +245,11 @@ class ResourceService(BaseResourceService):
         # 获取对应的专家服务
         impl_service = await self._get_impl_service_by_type(resource.resource_type.name)
 
+        # 显式加载实现层完整实例，避免依赖隐式懒加载。
+        full_workspace_instance = await impl_service.get_by_uuid(resource.workspace_instance.uuid)
+        if full_workspace_instance:
+            resource.workspace_instance = full_workspace_instance
+
         await impl_service.on_resource_delete(resource)
         
         await self.db.delete(resource)
@@ -262,25 +263,25 @@ class ResourceService(BaseResourceService):
         await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.workspace)
         return instance
 
-    async def _get_resource_instances_by_uuid(self, resource_uuid: str, actor: User) -> List[ResourceInstance]:
+    async def _get_resource_instances_by_uuid(self, resource_uuid: str, actor: User) -> List[Dict[str, Any]]:
         resource = await self.dao.get_by_uuid(resource_uuid, withs=["workspace"])
         if not resource:
             raise NotFoundError("Resource not found.")
 
         await self.context.perm_evaluator.ensure_can(["resource:read"], target=resource.workspace)
 
-        instances = await self.instance_dao.get_list(
-            where={"resource_id": resource.id},
-            order=[self.instance_dao.model.created_at.desc()],
-            unique=True
-        )
-        return instances
+        # 版本列表只返回摘要字段，避免“每版本一次 full instance 查询”的串行 N+1。
+        return await self.instance_dao.list_version_summaries_by_resource_id(resource.id)
 
     async def _get_instance_dependencies(self, instance_uuid: str, actor: User):
-        service = await self._get_impl_service_by_instance(instance_uuid)
-        instance = await service.get_by_uuid(instance_uuid)
-        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.workspace)
-        return await service.get_dependencies(instance)
+        instance_stub = await self._get_instance_stub_by_uuid(instance_uuid)
+        await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance_stub.resource.workspace)
+        service = await self._get_impl_service_by_type(instance_stub.resource_type)
+        # 仅 knowledge 依赖实现层字段；其余类型基于 stub(id/uuid/type)即可解析依赖。
+        if instance_stub.resource_type == "knowledge":
+            full_instance = await self._get_full_instance_by_uuid(instance_uuid, instance_stub=instance_stub)
+            return await service.get_dependencies(full_instance)
+        return await service.get_dependencies(instance_stub)
 
     async def _publish_instance(
         self, 
@@ -292,10 +293,13 @@ class ResourceService(BaseResourceService):
         [核心业务逻辑] 发布一个工作区实例。
         这会原子地将旧的发布版本归档，并创建一个新的 PUBLISHED 快照。
         """
-        # 1. 加载源实例（必须是工作区版本）
-        source_instance = await self.instance_dao.get_by_uuid(instance_uuid)
-        if not source_instance or source_instance.status != VersionStatus.WORKSPACE:
+        # 1. 先加载轻量实例并做状态校验
+        source_stub = await self._get_instance_stub_by_uuid(instance_uuid)
+        if source_stub.status != VersionStatus.WORKSPACE:
             raise ServiceException("Only a workspace instance can be published.")
+
+        # 2. 再按类型加载完整实例（发布快照需要子类字段）
+        source_instance = await self._get_full_instance_by_uuid(instance_uuid, instance_stub=source_stub)
 
         # 2. 权限检查
         resource = source_instance.resource
@@ -354,8 +358,8 @@ class ResourceService(BaseResourceService):
 
     async def _archive_instance(self, instance_uuid: str, actor: User) -> ResourceInstance:
         """手动归档一个已发布的版本。"""
-        instance = await self.instance_dao.get_by_uuid(instance_uuid)
-        if not instance or instance.status != VersionStatus.PUBLISHED:
+        instance = await self._get_instance_stub_by_uuid(instance_uuid)
+        if instance.status != VersionStatus.PUBLISHED:
             raise ServiceException("Only a published instance can be archived.")
 
         await self.context.perm_evaluator.ensure_can(["resource:publish"], target=instance.resource.workspace)
@@ -377,10 +381,10 @@ class ResourceService(BaseResourceService):
             
         await self.db.flush()
         await self.db.refresh(instance)
-        return instance
+        return await self._get_full_instance_by_uuid(instance_uuid, instance_stub=instance)
 
     async def _update_instance_by_uuid(self, instance_uuid: str, update_data: Dict[str, Any], actor: User) -> ResourceInstance:
-        instance = await self.instance_dao.get_by_uuid(instance_uuid)
+        instance = await self._get_full_instance_by_uuid(instance_uuid)
         await self.context.perm_evaluator.ensure_can(["resource:update"], target=instance.resource.workspace)
         service = await self._get_impl_service_by_instance(instance)
         updated_instance = await service.update_instance(instance, update_data)
@@ -393,8 +397,8 @@ class ResourceService(BaseResourceService):
         """
         永久删除一个特定的 ResourceInstance (版本)。
         """
-        # 1. 获取实例（用于权限）
-        instance = await self.instance_dao.get_by_uuid(instance_uuid)
+        # 1. 获取完整实例（用于权限与类型化删除逻辑）
+        instance = await self._get_full_instance_by_uuid(instance_uuid)
         
         # 2. 执行通用逻辑：权限检查
         # 注意：删除版本也应该使用 "resource:delete" 权限，因为它同样具有破坏性

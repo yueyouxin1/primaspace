@@ -1,12 +1,12 @@
 # src/app/dao/resource/resource_ref_dao.py
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_
-from sqlalchemy.orm import joinedload
+from sqlalchemy import select, delete
+from sqlalchemy.orm import joinedload, load_only, lazyload
 from typing import List
 
 from app.dao.base_dao import BaseDao
-from app.models.resource import ResourceRef, ResourceInstance, Resource
+from app.models.resource import ResourceRef, ResourceInstance, Resource, ResourceType
 
 class ResourceRefDao(BaseDao[ResourceRef]):
     def __init__(self, db_session: AsyncSession):
@@ -17,15 +17,26 @@ class ResourceRefDao(BaseDao[ResourceRef]):
         获取指定实例的所有出站依赖（它引用了谁）。
         预加载 target_instance 及其 resource 信息。
         """
-        stmt = (
-            select(ResourceRef)
-            .where(
-                ResourceRef.source_instance_id == source_instance_id,
-                ResourceRef.source_node_uuid == source_node_uuid
-            )
-            .options(
-                joinedload(ResourceRef.target_instance).joinedload(ResourceInstance.resource),
-                # 可选：如果需要知道目标是哪种类型（如Tool），可能需要多态加载，但基础resource信息通常足够
+        stmt = select(ResourceRef).where(ResourceRef.source_instance_id == source_instance_id)
+        if source_node_uuid is not None:
+            stmt = stmt.where(ResourceRef.source_node_uuid == source_node_uuid)
+
+        stmt = stmt.options(
+            joinedload(ResourceRef.source_instance).options(
+                lazyload("*"),
+                load_only(ResourceInstance.id, ResourceInstance.uuid)
+            ),
+            joinedload(ResourceRef.target_instance).options(
+                lazyload("*"),
+                load_only(ResourceInstance.id, ResourceInstance.uuid, ResourceInstance.version_tag)
+            ),
+            joinedload(ResourceRef.target_resource).options(
+                lazyload("*"),
+                load_only(Resource.id, Resource.name, Resource.resource_type_id),
+                joinedload(Resource.resource_type).options(
+                    lazyload("*"),
+                    load_only(ResourceType.id, ResourceType.name)
+                )
             )
         )
         result = await self.db_session.execute(stmt)

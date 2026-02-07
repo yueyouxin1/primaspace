@@ -3,9 +3,8 @@ from sqlalchemy import select
 from app.worker.context import rebuild_context_for_worker
 from app.services.resource.agent.memory.deep.long_term_context_service import LongTermContextService
 from app.services.resource.agent.memory.deep.context_summary_service import ContextSummaryService
-from app.dao.resource.resource_dao import ResourceInstanceDao
+from app.dao.resource.agent.agent_dao import AgentDao
 from app.models.interaction.chat import ChatMessage
-from app.models.resource.agent import Agent
 from app.schemas.resource.agent.agent_schemas import AgentConfig
 
 async def index_trace_task(ctx: dict, agent_instance_id: int, session_uuid: str, trace_id: str, runtime_workspace_id: int, user_uuid: str):
@@ -55,12 +54,12 @@ async def summarize_trace_task(ctx: dict, agent_instance_id: int, session_uuid: 
                 if not messages: return
 
                 # 2. 获取配置
-                instance_dao = ResourceInstanceDao(session)
-                agent_instance = await instance_dao.get_by_pk(agent_instance_id)
+                agent_dao = AgentDao(session)
+                agent_instance = await agent_dao.get_by_pk(agent_instance_id)
                 if not agent_instance: return
                 
                 try:
-                    agent_config = AgentConfig(**agent_instance.model_config_data)
+                    agent_config = AgentConfig(**agent_instance.agent_config)
                 except:
                     return # 配置无效
 

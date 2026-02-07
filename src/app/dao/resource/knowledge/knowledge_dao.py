@@ -1,35 +1,34 @@
 # src/app/dao/resource/knowledge/knowledge_dao.py
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import with_polymorphic
+from sqlalchemy.orm import lazyload
 from typing import Optional, List
 from app.dao.base_dao import BaseDao
 
 # Import the models this DAO will interact with
-from app.models.resource import ResourceInstance
 from app.models.resource.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeChunk
 
 class KnowledgeBaseDao(BaseDao[KnowledgeBase]):
     """DAO for KnowledgeBase resource instances."""
     def __init__(self, db_session: AsyncSession):
-        # [关键] 虽然模型是 KnowledgeBase，但 selectable 必须是多态加载器
-        # 这样 BaseDao 的查询才能找到 ResourceInstance 表中的 uuid 等字段
-        self.polymorphic_loader = with_polymorphic(ResourceInstance, [KnowledgeBase])
-        super().__init__(
-            model_class=KnowledgeBase, 
-            db_session=db_session, 
-            #selectable=self.polymorphic_loader
-        )
+        super().__init__(model_class=KnowledgeBase, db_session=db_session)
 
     async def get_by_uuid(self, uuid: str, withs: Optional[list] = None) -> Optional[KnowledgeBase]:
         """Finds a KnowledgeBase instance by its ResourceInstance UUID."""
-        # BaseDao's get_one can handle this perfectly because we configured the selectable
-        return await self.get_one(where={"uuid": uuid}, withs=withs)
+        return await self.get_one(
+            where={"uuid": uuid},
+            withs=withs,
+            options=[lazyload("*")]
+        )
 
     async def get_by_uuids(self, uuids: List[str], withs: Optional[list] = None) -> Optional[List[KnowledgeBase]]:
         """Finds a KnowledgeBase instance by its ResourceInstance UUID."""
-        # BaseDao's get_one can handle this perfectly because we configured the selectable
-        return await self.get_list(where=[KnowledgeBase.uuid.in_(uuids)], withs=withs, unique=True)
+        return await self.get_list(
+            where=[KnowledgeBase.uuid.in_(uuids)],
+            withs=withs,
+            options=[lazyload("*")],
+            unique=True
+        )
 
 class KnowledgeDocumentDao(BaseDao[KnowledgeDocument]):
     """DAO for managing KnowledgeDocument records."""

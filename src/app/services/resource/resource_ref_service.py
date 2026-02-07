@@ -7,7 +7,7 @@ from app.models.resource import Resource, ResourceInstance, ResourceType, Resour
 from app.dao.resource.resource_ref_dao import ResourceRefDao
 from app.schemas.resource.resource_ref_schemas import ReferenceCreate, ReferenceRead, BatchSyncReferences
 from .base.base_resource_service import BaseResourceService
-from app.services.exceptions import NotFoundError, ServiceException
+from app.services.exceptions import NotFoundError, ServiceException, PermissionDeniedError
 
 class ResourceRefService(BaseResourceService):
     def __init__(self, context: AppContext):
@@ -34,9 +34,7 @@ class ResourceRefService(BaseResourceService):
         为源实例添加一个依赖引用。
         """
         # 1. 验证源实例 (Source)
-        source_instance = await self.instance_dao.get_by_uuid(source_instance_uuid)
-        if not source_instance:
-            raise NotFoundError("Source instance not found.")
+        source_instance = await self._get_instance_stub_by_uuid(source_instance_uuid)
         
         # 鉴权：必须有权修改源资源
         await self.context.perm_evaluator.ensure_can(["resource:update"], target=source_instance.resource.workspace)
@@ -46,9 +44,7 @@ class ResourceRefService(BaseResourceService):
             raise ServiceException("Dependencies can only be added to Workspace instances.")
 
         # 2. 验证目标实例 (Target)
-        target_instance = await self.instance_dao.get_by_uuid(ref_data.target_instance_uuid)
-        if not target_instance:
-            raise NotFoundError("Target instance not found.")
+        target_instance = await self._get_instance_stub_by_uuid(ref_data.target_instance_uuid)
         
         # 仅允许引用发布版本（因为发布版本通常经过用户调试验证可用）
         if target_instance.status != VersionStatus.PUBLISHED:
@@ -95,13 +91,11 @@ class ResourceRefService(BaseResourceService):
         """
         移除依赖。
         """
-        source_instance = await self.instance_dao.get_by_uuid(source_instance_uuid)
-        if not source_instance: raise NotFoundError("Source not found")
+        source_instance = await self._get_instance_stub_by_uuid(source_instance_uuid)
         
         await self.context.perm_evaluator.ensure_can(["resource:update"], target=source_instance.resource.workspace)
         
-        target_instance = await self.instance_dao.get_by_uuid(target_instance_uuid)
-        if not target_instance: raise NotFoundError("Target not found")
+        target_instance = await self._get_instance_stub_by_uuid(target_instance_uuid)
 
         await self.dao.delete_by_source_and_target(
             source_instance.id, 
@@ -114,8 +108,7 @@ class ResourceRefService(BaseResourceService):
         """
         列出某实例的所有依赖。
         """
-        instance = await self.instance_dao.get_by_uuid(instance_uuid)
-        if not instance: raise NotFoundError("Instance not found")
+        instance = await self._get_instance_stub_by_uuid(instance_uuid)
         
         await self.context.perm_evaluator.ensure_can(["resource:read"], target=instance.resource.workspace)
         

@@ -1,6 +1,7 @@
 # src/app/dao/resource/tenantdb/tenantdb_dao.py
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
 from typing import Optional
 from app.dao.base_dao import BaseDao
 from app.models.resource.tenantdb import TenantDB, TenantTable, TenantColumn
@@ -11,7 +12,11 @@ class TenantDBDao(BaseDao[TenantDB]):
 
     async def get_by_uuid(self, uuid: str, withs: Optional[list] = None) -> Optional[TenantDB]:
         """Finds a TenantDB instance by its UUID."""
-        return await self.get_one(where={"uuid": uuid}, withs=withs)
+        return await self.get_one(
+            where={"uuid": uuid},
+            withs=withs,
+            options=[lazyload("*")]
+        )
 
 class TenantTableDao(BaseDao[TenantTable]):
     def __init__(self, db_session: AsyncSession):

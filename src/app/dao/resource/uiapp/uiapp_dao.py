@@ -2,7 +2,7 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, lazyload
 from typing import Optional, List
 from app.dao.base_dao import BaseDao
 from app.models.resource.uiapp import UiApp, UiPage
@@ -23,6 +23,7 @@ class UiAppDao(BaseDao[UiApp]):
             select(UiApp)
             .where(UiApp.uuid == uuid)
             .options(
+                lazyload("*"),
                 # 仅加载页面的元数据，排除 heavy data
                 selectinload(UiApp.pages).load_only(
                     UiPage.page_uuid, UiPage.path, UiPage.label, 

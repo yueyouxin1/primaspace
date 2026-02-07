@@ -5,12 +5,10 @@ from datetime import timedelta
 from typing import List, Optional, Literal, Set, Any, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload, attributes
-from app.dao.permission.role_dao import RoleDao
-from app.dao.identity.team_member_dao import TeamMemberDao
+from sqlalchemy.orm import attributes
 from app.models import User, Workspace, Team, Role, ActionPermission, MembershipStatus, TeamMember
 from app.services.redis_service import RedisService
-from app.services.exceptions import PermissionDeniedError, ServiceException
+from app.services.exceptions import PermissionDeniedError
 
 class PermissionEvaluator:
     def __init__(
@@ -120,28 +118,63 @@ class PermissionEvaluator:
 
     async def _get_base_permissions_from_roles(self, actor: User, target: User | Team | Workspace) -> Set[str]:
         """Fetches the set of permissions directly assigned to the actor's roles in a given context."""
-
-        role_ids_to_query = []
+        # 用户上下文：读取平台级 Membership 角色。
         if isinstance(target, User):
             user_role_id = await self._get_user_role_id(target)
-            if user_role_id: role_ids_to_query.append(user_role_id)
-        elif isinstance(target, Team):
-            member_record = await self._get_team_member_record(actor, target.id)
-            if member_record: role_ids_to_query.append(member_record.role_id)
-        elif isinstance(target, Workspace):
+            if not user_role_id:
+                return set()
+            stmt = (
+                select(ActionPermission.name)
+                .join(ActionPermission.roles)
+                .where(Role.id == user_role_id)
+            )
+            result = await self.db.execute(stmt)
+            return set(result.scalars().all())
+
+        # 团队上下文：直接通过 TeamMember -> Role -> ActionPermission 一跳查询，避免先查 member 再二次查权限。
+        if isinstance(target, Team):
+            stmt = (
+                select(ActionPermission.name)
+                .select_from(TeamMember)
+                .join(Role, TeamMember.role_id == Role.id)
+                .join(Role.permissions)
+                .where(
+                    TeamMember.user_id == actor.id,
+                    TeamMember.team_id == target.id
+                )
+            )
+            result = await self.db.execute(stmt)
+            return set(result.scalars().all())
+
+        # 工作空间上下文：团队工作空间复用团队权限链路；个人工作空间回退用户角色。
+        if isinstance(target, Workspace):
             if target.owner_team_id:
-                member_record = await self._get_team_member_record(actor, target.owner_team_id)
-                if member_record: role_ids_to_query.append(member_record.role_id)
-            elif target.owner_user_id == actor.id:
+                stmt = (
+                    select(ActionPermission.name)
+                    .select_from(TeamMember)
+                    .join(Role, TeamMember.role_id == Role.id)
+                    .join(Role.permissions)
+                    .where(
+                        TeamMember.user_id == actor.id,
+                        TeamMember.team_id == target.owner_team_id
+                    )
+                )
+                result = await self.db.execute(stmt)
+                return set(result.scalars().all())
+
+            if target.owner_user_id == actor.id:
                 user_role_id = await self._get_user_role_id(actor)
-                if user_role_id: role_ids_to_query.append(user_role_id)
+                if not user_role_id:
+                    return set()
+                stmt = (
+                    select(ActionPermission.name)
+                    .join(ActionPermission.roles)
+                    .where(Role.id == user_role_id)
+                )
+                result = await self.db.execute(stmt)
+                return set(result.scalars().all())
 
-        if not role_ids_to_query:
-            return set()
-
-        stmt = select(ActionPermission.name).join(ActionPermission.roles).where(Role.id.in_(role_ids_to_query))
-        result = await self.db.execute(stmt)
-        return set(result.scalars().all())
+        return set()
 
     def _get_user_cache_prefix(self, actor: User) -> str:
         return f"perms:actor_{actor.id}::"
@@ -211,5 +244,3 @@ class PermissionEvaluator:
         )
         return None
 
-    async def _get_team_member_record(self, actor: User, team_id: int) -> Optional[TeamMember]:
-        return await TeamMemberDao(self.db).get_one(where={"user_id": actor.id, "team_id": team_id})

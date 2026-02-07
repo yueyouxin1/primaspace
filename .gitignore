@@ -271,3 +271,6 @@ Thumbs.db
 .vuepress/dist/
 # Storybook
 storybook-static/
+
+# 其他
+reference_example/

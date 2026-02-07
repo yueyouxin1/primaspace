@@ -6,7 +6,7 @@ from app.core.context import AppContext
 from .common import CommonResourceService
 from .base_impl_service import ResourceImplementationService, ALL_RESOURCE_IMPLE_SERVICE
 from app.models.resource import ResourceInstance
-from app.services.exceptions import ServiceException
+from app.services.exceptions import ServiceException, NotFoundError
 
 class BaseResourceService(CommonResourceService):
     def __init__(self, context: AppContext):
@@ -70,3 +70,27 @@ class BaseResourceService(CommonResourceService):
         # 3. 存入类型缓存
         self._type_services_cache[resource_type] = impl_service
         return impl_service
+
+    async def _get_instance_stub_by_uuid(self, instance_uuid: str) -> ResourceInstance:
+        """
+        获取轻量实例（用于状态、类型、权限链路判断）。
+        """
+        instance = await self.instance_dao.get_by_uuid(instance_uuid)
+        if not instance:
+            raise NotFoundError("Resource instance not found.")
+        return instance
+
+    async def _get_full_instance_by_uuid(
+        self,
+        instance_uuid: str,
+        instance_stub: ResourceInstance | None = None
+    ) -> ResourceInstance:
+        """
+        按实例类型分发到具体实现服务，加载完整子类实例。
+        """
+        stub = instance_stub or await self._get_instance_stub_by_uuid(instance_uuid)
+        impl_service = await self._get_impl_service_by_type(stub.resource_type)
+        full_instance = await impl_service.get_by_uuid(stub.uuid)
+        if not full_instance:
+            raise NotFoundError("Resource instance not found.")
+        return full_instance

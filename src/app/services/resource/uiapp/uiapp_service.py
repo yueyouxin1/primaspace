@@ -18,6 +18,7 @@ from app.services.resource.resource_ref_service import ResourceRefService
 from app.services.resource.uiapp.dependency_extractor import DependencyExtractor
 from app.services.exceptions import ServiceException, NotFoundError, PermissionDeniedError
 from app.engine.model.llm import LLMTool, LLMToolFunction
+from app.models.resource import ResourceRef
 
 logger = logging.getLogger(__name__)
 
@@ -326,11 +327,12 @@ class UiAppService(ResourceImplementationService):
         return ValidationResult(is_valid=not errors, errors=errors)
 
     async def get_dependencies(self, instance: UiApp) -> List[DependencyInfo]:
-        refs = await self.ref_service.list_dependencies(instance.uuid, self.context.actor)
+        # 上游 ResourceService 已完成该实例的鉴权，这里只做依赖查询本身，避免重复查询与重复鉴权。
+        refs: List[ResourceRef] = await self.ref_service.dao.get_dependencies(instance.id)
         return [
             DependencyInfo(
-                resource_uuid=r.target_resource_name,
-                instance_uuid=r.target_instance_uuid,
+                resource_uuid=r.target_resource.uuid,
+                instance_uuid=r.target_instance.uuid,
                 alias=r.alias
             ) for r in refs
         ]

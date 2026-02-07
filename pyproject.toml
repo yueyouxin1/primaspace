@@ -6,7 +6,7 @@ authors = [
     {name = "Your Name",email = "you@example.com"}
 ]
 readme = "README.md"
-requires-python = "3.10.12"
+requires-python = ">=3.10.12,<3.13"
 dependencies = [
     "funasr (>=1.2.7,<2.0.0)",
     "funasr-onnx (>=0.4.1,<0.5.0)",
